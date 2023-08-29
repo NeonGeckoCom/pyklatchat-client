@@ -47,9 +47,9 @@ from utils.logging_utils import LOG
 sys.path.append(os.path.pardir)
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from .blueprints import base as base_blueprint, \
-                        chat as chat_blueprint, \
-                        components as components_blueprint
+from blueprints import base as base_blueprint, \
+                       chat as chat_blueprint, \
+                       components as components_blueprint
 
 
 def create_app() -> FastAPI:

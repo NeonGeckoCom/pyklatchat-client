@@ -3,5 +3,5 @@ Jinja2==3.0.1
 jsbeautifier==1.14.7
 requests==2.31.0
 uvicorn==0.14.0
-ovos_utils==0.0.21
-ovos_config==0.0.10
+ovos_utils==0.0.35
+ovos_config>=0.0.11a10
