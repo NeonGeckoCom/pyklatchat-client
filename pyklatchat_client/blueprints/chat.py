@@ -34,14 +34,14 @@ from fastapi.responses import JSONResponse
 from fastapi.templating import Jinja2Templates
 from utils.logging_utils import LOG
 
-from chat_client.client_config import app_config
+from pyklatchat_client.client_config import app_config
 
 router = APIRouter(
     prefix="/chats",
     responses={'404': {"description": "Unknown endpoint"}},
 )
 
-conversation_templates = Jinja2Templates(directory="chat_client/templates")
+conversation_templates = Jinja2Templates(directory="pyklatchat_client/templates")
 
 
 @router.get('/')

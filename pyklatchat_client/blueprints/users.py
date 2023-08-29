@@ -35,8 +35,8 @@ from typing import Optional
 from fastapi import Response, Request, status, APIRouter, Form, UploadFile, File
 from fastapi.exceptions import HTTPException
 
-from chat_client.client_config import app_config
-from chat_client.client_utils.api_utils import call_server
+from pyklatchat_client.client_config import app_config
+from pyklatchat_client.client_utils.api_utils import call_server
 
 router = APIRouter(
     prefix="/users",

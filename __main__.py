@@ -26,9 +26,9 @@
 # NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 # SOFTWARE,  EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 import os
-
 import uvicorn
-from chat_client.wsgi import app
+
+from pyklatchat_client.wsgi import app
 
 
 if __name__ == '__main__':

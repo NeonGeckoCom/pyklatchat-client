@@ -29,7 +29,7 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from utils.logging_utils import LOG
 
-from chat_client.client_config import app_config
+from pyklatchat_client.client_config import app_config
 
 router = APIRouter(
     prefix="/base",

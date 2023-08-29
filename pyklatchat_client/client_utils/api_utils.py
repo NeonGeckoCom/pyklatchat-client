@@ -31,7 +31,7 @@ import requests
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from chat_client.client_config import app_config
+from pyklatchat_client.client_config import app_config
 from utils.http_utils import respond
 
 

@@ -56,11 +56,11 @@ def create_app() -> FastAPI:
     """
         Application factory for the Klatchat Client
     """
-    app_version = get_version('chat_client/version.py')
+    app_version = get_version('version.py')
     LOG.name = os.environ.get('LOG_NAME', 'client_err')
     LOG.base_path = os.environ.get('LOG_BASE_PATH', '.')
     LOG.init(config={'level': os.environ.get('LOG_LEVEL', 'INFO'), 'path': os.environ.get('LOG_PATH', os.getcwd())})
-    logger = LOG.create_logger('chat_client')
+    logger = LOG.create_logger('pyklatchat_client')
     logger.addHandler(logging.StreamHandler())
     LOG.info(f'Starting Klatchat Client v{app_version}')
     chat_app = FastAPI(title="Klatchat Client",
@@ -104,9 +104,9 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     static_suffix = '/build' if os.environ.get('KLAT_ENV', 'dev').upper() == 'PROD' else ''
-    chat_app.mount("/css", StaticFiles(directory=f"chat_client/static/css{static_suffix}"), name="css")
-    chat_app.mount("/js", StaticFiles(directory=f"chat_client/static/js{static_suffix}"), name="js")
-    chat_app.mount("/img", StaticFiles(directory=f"chat_client/static/img"), name="img")
+    chat_app.mount("/css", StaticFiles(directory=f"pyklatchat_client/static/css{static_suffix}"), name="css")
+    chat_app.mount("/js", StaticFiles(directory=f"pyklatchat_client/static/js{static_suffix}"), name="js")
+    chat_app.mount("/img", StaticFiles(directory=f"pyklatchat_client/static/img"), name="img")
 
     chat_app.include_router(base_blueprint.router)
     chat_app.include_router(chat_blueprint.router)
