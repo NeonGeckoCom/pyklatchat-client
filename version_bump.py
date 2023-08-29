@@ -26,15 +26,29 @@
 # NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 # SOFTWARE,  EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import fileinput
+from os.path import join, dirname
 
-import os
+with open(join(dirname(__file__), "version.py"), "r", encoding="utf-8") as v:
+    for line in v.readlines():
+        if line.startswith("__version__"):
+            if '"' in line:
+                version = line.split('"')[1]
+            else:
+                version = line.split("'")[1]
 
-from pyklatchat_utils.config import Configuration
-from pyklatchat_utils.logging_utils import LOG
+if "a" not in version:
+    parts = version.split('.')
+    parts[-1] = str(int(parts[-1]) + 1)
+    version = '.'.join(parts)
+    version = f"{version}a0"
+else:
+    post = version.split("a")[1]
+    new_post = int(post) + 1
+    version = version.replace(f"a{post}", f"a{new_post}")
 
-config_file_path = os.environ.get('CHATCLIENT_CONFIG', '~/.local/share/neon/credentials_client.json')
-
-config = Configuration(from_files=[config_file_path])
-app_config = config.get('CHAT_CLIENT', {}).get(Configuration.KLAT_ENV)
-
-LOG.info(f'App config: {app_config}')
+for line in fileinput.input(join(dirname(__file__), "version.py"), inplace=True):
+    if line.startswith("__version__"):
+        print(f"__version__ = \"{version}\"")
+    else:
+        print(line.rstrip('\n'))

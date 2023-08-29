@@ -26,15 +26,57 @@
 # NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 # SOFTWARE,  EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+from setuptools import setup
+from os import getenv, path
 
-import os
 
-from pyklatchat_utils.config import Configuration
-from pyklatchat_utils.logging_utils import LOG
+def get_requirements(requirements_filename: str):
+    requirements_file = path.join(path.abspath(path.dirname(__file__)), "requirements", requirements_filename)
+    with open(requirements_file, 'r', encoding='utf-8') as r:
+        requirements = r.readlines()
+    requirements = [r.strip() for r in requirements if r.strip() and not r.strip().startswith("#")]
 
-config_file_path = os.environ.get('CHATCLIENT_CONFIG', '~/.local/share/neon/credentials_client.json')
+    for i in range(0, len(requirements)):
+        r = requirements[i]
+        if "@" in r:
+            parts = [p.lower() if p.strip().startswith("git+http") else p for p in r.split('@')]
+            r = "@".join(parts)
+            if getenv("GITHUB_TOKEN"):
+                if "github.com" in r:
+                    r = r.replace("github.com", f"{getenv('GITHUB_TOKEN')}@github.com")
+            requirements[i] = r
+    return requirements
 
-config = Configuration(from_files=[config_file_path])
-app_config = config.get('CHAT_CLIENT', {}).get(Configuration.KLAT_ENV)
 
-LOG.info(f'App config: {app_config}')
+with open("README.md", "r") as f:
+    long_description = f.read()
+
+with open("./version.py", "r", encoding="utf-8") as v:
+    for line in v.readlines():
+        if line.startswith("__version__"):
+            if '"' in line:
+                version = line.split('"')[1]
+            else:
+                version = line.split("'")[1]
+
+setup(
+    name='pyklatchat_client',
+    version=version,
+    description='Klatchat Client v2.0',
+    url='https://github.com/NeonGeckoCom/pyklatchat-client',
+    author='NeonGecko',
+    author_email='developers@neon.ai',
+    license='BSD-3',
+    packages=['pyklatchat_client'],
+    install_requires=get_requirements("requirements.txt"),
+    zip_safe=True,
+    classifiers=[
+        'Intended Audience :: Developers',
+        'Programming Language :: Python :: 3.8',
+    ],
+    entry_points={
+        'console_scripts': [
+            'chat_client=chat_client.__main__:main',
+        ]
+    }
+)

@@ -32,7 +32,6 @@ from uuid import uuid4
 from fastapi import APIRouter, Request, Form
 from fastapi.responses import JSONResponse
 from fastapi.templating import Jinja2Templates
-from utils.logging_utils import LOG
 
 from pyklatchat_client.client_config import app_config
 

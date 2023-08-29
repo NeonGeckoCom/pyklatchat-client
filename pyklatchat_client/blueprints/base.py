@@ -27,7 +27,7 @@
 # SOFTWARE,  EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
-from utils.logging_utils import LOG
+from pyklatchat_utils.logging_utils import LOG
 
 from pyklatchat_client.client_config import app_config
 

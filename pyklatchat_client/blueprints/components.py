@@ -33,8 +33,8 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from chat_client.client_config import app_config
-from utils.http_utils import respond
-from utils.template_utils import callback_template
+from pyklatchat_utils.http_utils import respond
+from pyklatchat_utils.template_utils import callback_template
 
 router = APIRouter(
     prefix="/components",
