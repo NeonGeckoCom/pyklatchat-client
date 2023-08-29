@@ -29,14 +29,14 @@
 
 import requests
 
-from pyklatchat_utils.logging_utils import LOG
+from utils.logging_utils import LOG
 
 from typing import Optional
 from fastapi import Response, Request, status, APIRouter, Form, UploadFile, File
 from fastapi.exceptions import HTTPException
 
-from pyklatchat_client.client_config import app_config
-from pyklatchat_client.client_utils.api_utils import call_server
+from client_config import app_config
+from utils.api_utils import call_server
 
 router = APIRouter(
     prefix="/users",

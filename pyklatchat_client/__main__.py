@@ -26,13 +26,12 @@
 # NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 # SOFTWARE,  EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 import os
+import uvicorn
 
-from utils.config_utils import load_config
-from utils.logging_utils import LOG
+from wsgi import app
 
 
-ENV = os.environ.get('ENV', 'local')
-config = load_config()
-app_config = config.get('CHAT_CLIENT', {}).get(ENV)
-
-LOG.info(f'App config: {app_config}')
+if __name__ == '__main__':
+    uvicorn.run(app=app, host=os.environ.get('HOST', '127.0.0.1'),
+                port=int(os.environ.get('PORT', 8001)),
+                log_level=os.environ.get('LOG_LEVEL', 'INFO').lower())

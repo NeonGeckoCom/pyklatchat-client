@@ -25,15 +25,11 @@
 # LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
 # NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 # SOFTWARE,  EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-import requests
 
-from time import time
-from uuid import uuid4
-from fastapi import APIRouter, Request, Form
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Request
 from fastapi.templating import Jinja2Templates
 
-from pyklatchat_client.client_config import app_config
+from client_config import app_config
 
 router = APIRouter(
     prefix="/chats",

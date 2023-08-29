@@ -25,13 +25,16 @@
 # LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
 # NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 # SOFTWARE,  EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-import os
-import uvicorn
-
-from pyklatchat_client.wsgi import app
+from starlette.responses import JSONResponse
 
 
-if __name__ == '__main__':
-    uvicorn.run(app=app, host=os.environ.get('HOST', '127.0.0.1'),
-                port=int(os.environ.get('PORT', 8001)),
-                log_level=os.environ.get('LOG_LEVEL', 'INFO').lower())
+def respond(msg: str, status_code: int = 200) -> JSONResponse:
+    """
+        Sending responds with unified pattern
+
+        :param msg: message to send
+        :param status_code: HTTP status code
+
+        :returns JSON response containing provided message
+    """
+    return JSONResponse({'msg': msg}, status_code)

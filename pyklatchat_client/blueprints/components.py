@@ -27,14 +27,12 @@
 # SOFTWARE,  EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import requests
-from fastapi import APIRouter, HTTPException
-from starlette import status
+from fastapi import APIRouter
 from starlette.requests import Request
-from starlette.responses import Response
 
-from chat_client.client_config import app_config
-from pyklatchat_utils.http_utils import respond
-from pyklatchat_utils.template_utils import callback_template
+from client_config import app_config
+from utils.http_utils import respond
+from utils.template_utils import callback_template
 
 router = APIRouter(
     prefix="/components",
