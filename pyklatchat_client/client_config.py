@@ -31,7 +31,7 @@ from utils.config_utils import load_config
 from utils.logging_utils import LOG
 
 
-ENV = os.environ.get('ENV', 'local')
+ENV = os.environ.get('KLAT_ENV', 'local')
 config = load_config()
 app_config = config.get('CHAT_CLIENT', {}).get(ENV)
 
