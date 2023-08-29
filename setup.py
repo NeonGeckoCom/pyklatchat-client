@@ -63,6 +63,8 @@ setup(
     name='pyklatchat_client',
     version=version,
     description='Klatchat Client v2.0',
+    long_description=long_description,
+    long_description_content_type="text/markdown",
     url='https://github.com/NeonGeckoCom/pyklatchat-client',
     author='NeonGecko',
     author_email='developers@neon.ai',
