@@ -26,20 +26,28 @@
 # NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 # SOFTWARE,  EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from setuptools import setup
+from setuptools import setup, find_packages
 from os import getenv, path
+
+BASE_PATH = path.abspath(path.dirname(__file__))
 
 
 def get_requirements(requirements_filename: str):
-    requirements_file = path.join(path.abspath(path.dirname(__file__)), "requirements", requirements_filename)
-    with open(requirements_file, 'r', encoding='utf-8') as r:
+    requirements_file = path.join(BASE_PATH, "requirements",
+                                  requirements_filename)
+    with open(requirements_file, "r", encoding="utf-8") as r:
         requirements = r.readlines()
-    requirements = [r.strip() for r in requirements if r.strip() and not r.strip().startswith("#")]
+    requirements = [
+        r.strip() for r in requirements if r.strip() and not r.strip().startswith("#")
+    ]
 
     for i in range(0, len(requirements)):
         r = requirements[i]
         if "@" in r:
-            parts = [p.lower() if p.strip().startswith("git+http") else p for p in r.split('@')]
+            parts = [
+                p.lower() if p.strip().startswith("git+http") else p
+                for p in r.split("@")
+            ]
             r = "@".join(parts)
             if getenv("GITHUB_TOKEN"):
                 if "github.com" in r:
@@ -48,10 +56,11 @@ def get_requirements(requirements_filename: str):
     return requirements
 
 
-with open("README.md", "r") as f:
+with open(path.join(BASE_PATH, "README.md"), "r") as f:
     long_description = f.read()
 
-with open("./version.py", "r", encoding="utf-8") as v:
+with open(path.join(BASE_PATH, "chat_client", "version.py"), "r",
+          encoding="utf-8") as v:
     for line in v.readlines():
         if line.startswith("__version__"):
             if '"' in line:
@@ -60,25 +69,24 @@ with open("./version.py", "r", encoding="utf-8") as v:
                 version = line.split("'")[1]
 
 setup(
-    name='pyklatchat_client',
+    name="pyklatchat-client",
     version=version,
-    description='Klatchat Client v2.0',
-    long_description=long_description,
-    long_description_content_type="text/markdown",
-    url='https://github.com/NeonGeckoCom/pyklatchat-client',
-    author='NeonGecko',
-    author_email='developers@neon.ai',
-    license='BSD-3',
-    packages=['pyklatchat_client'],
+    description="Klatchat v2.0",
+    url="https://github.com/NeonGeckoCom/pyklatchat-client",
+    author="NeonGecko",
+    author_email="developers@neon.ai",
+    license="BSD-3",
+    packages=find_packages(),
     install_requires=get_requirements("requirements.txt"),
+    extras_require={"test": get_requirements("test_requirements.txt")},
     zip_safe=True,
     classifiers=[
-        'Intended Audience :: Developers',
-        'Programming Language :: Python :: 3.8',
+        "Intended Audience :: Developers",
+        "Programming Language :: Python :: 3.12",
     ],
     entry_points={
-        'console_scripts': [
-            'chat_client=chat_client.__main__:main',
+        "console_scripts": [
+            "pyklachat-client=chat_client.__main__:main",
         ]
-    }
+    },
 )

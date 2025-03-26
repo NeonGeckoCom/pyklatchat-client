@@ -8,9 +8,9 @@ on:
 
 jobs:
   tag_release:
-    runs-on: ubuntu-latest
+    runs-on: ${{inputs.runner}}
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Get Version
         run: |
           VERSION=$(python setup.py --version)
@@ -19,7 +19,6 @@ jobs:
         with:
           token: ${{secrets.GITHUB_TOKEN}}
           tag: ${{env.VERSION}}
-
   build_and_publish_docker:
     uses: neongeckocom/.github/.github/workflows/publish_docker.yml@master
     secrets: inherit
