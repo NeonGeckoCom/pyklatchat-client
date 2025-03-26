@@ -28,7 +28,6 @@
 import logging
 import random
 import string
-import sys
 import os
 import time
 
@@ -44,10 +43,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from klatchat_utils.common import get_version
 from klatchat_utils.logging_utils import LOG
 
-sys.path.append(os.path.pardir)
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
-from .blueprints import (
+from chat_client.blueprints import (
     base as base_blueprint,
     chat as chat_blueprint,
     components as components_blueprint,
