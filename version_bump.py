@@ -41,9 +41,11 @@ def run():
 
 def increment_version_ts():
     # Version handling is covered by release publishers
-    for line in fileinput.input(join(dirname(__file__), "chat_client", "version.py"), inplace=True):
+    for line in fileinput.input(
+        join(dirname(__file__), "chat_client", "version.py"), inplace=True
+    ):
         if line.startswith("__version_ts__"):
-            print(f'__version_ts__ = {int(time.time())}')
+            print(f"__version_ts__ = {int(time.time())}")
         else:
             print(line.rstrip("\n"))
 

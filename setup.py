@@ -33,8 +33,7 @@ BASE_PATH = path.abspath(path.dirname(__file__))
 
 
 def get_requirements(requirements_filename: str):
-    requirements_file = path.join(BASE_PATH, "requirements",
-                                  requirements_filename)
+    requirements_file = path.join(BASE_PATH, "requirements", requirements_filename)
     with open(requirements_file, "r", encoding="utf-8") as r:
         requirements = r.readlines()
     requirements = [
@@ -59,8 +58,9 @@ def get_requirements(requirements_filename: str):
 with open(path.join(BASE_PATH, "README.md"), "r") as f:
     long_description = f.read()
 
-with open(path.join(BASE_PATH, "chat_client", "version.py"), "r",
-          encoding="utf-8") as v:
+with open(
+    path.join(BASE_PATH, "chat_client", "version.py"), "r", encoding="utf-8"
+) as v:
     for line in v.readlines():
         if line.startswith("__version__"):
             if '"' in line:
@@ -78,7 +78,7 @@ setup(
     license="BSD-3",
     packages=find_packages(),
     install_requires=get_requirements("requirements.txt"),
-    extras_require={"test": get_requirements("test_requirements.txt")},
+    extras_require={"dev": get_requirements("dev_requirements.txt")},
     zip_safe=True,
     classifiers=[
         "Intended Audience :: Developers",

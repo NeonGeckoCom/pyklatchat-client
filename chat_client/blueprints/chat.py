@@ -54,7 +54,7 @@ async def chats(request: Request):
 
     :returns chats template response
     """
-    redirect_url = request.url_for('live_chats')
+    redirect_url = request.url_for("live_chats")
     return RedirectResponse(redirect_url, status_code=status.HTTP_303_SEE_OTHER)
 
 
