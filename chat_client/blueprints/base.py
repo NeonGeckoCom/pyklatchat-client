@@ -29,7 +29,7 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
 from chat_client.version import __version__, __version_ts__
-from klatchat_utils.logging_utils import LOG
+from neon_utils.logger import LOG
 
 from chat_client.client_config import client_config
 

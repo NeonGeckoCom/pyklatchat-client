@@ -41,7 +41,7 @@ from starlette.responses import RedirectResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from klatchat_utils.common import get_version
-from klatchat_utils.logging_utils import LOG
+from neon_utils.logger import LOG
 
 from chat_client.blueprints import (
     base as base_blueprint,
