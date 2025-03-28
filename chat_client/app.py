@@ -25,7 +25,6 @@
 # LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
 # NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 # SOFTWARE,  EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-import logging
 import random
 import string
 import os
@@ -33,6 +32,7 @@ import time
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+from klatchat_utils.constants import KLAT_ENV
 
 from starlette import status
 from starlette.middleware.cors import CORSMiddleware
@@ -40,7 +40,6 @@ from starlette.requests import Request
 from starlette.responses import RedirectResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from klatchat_utils.common import get_version
 from neon_utils.logger import LOG
 
 from chat_client.blueprints import (
@@ -48,25 +47,14 @@ from chat_client.blueprints import (
     chat as chat_blueprint,
     components as components_blueprint,
 )
+from chat_client.version import __version__ as app_version
 
 
 def create_app() -> FastAPI:
     """
     Application factory for the Klatchat Client
     """
-    app_version = get_version("version.py")
-    LOG.name = os.environ.get("LOG_NAME", "client_err")
-    LOG.base_path = os.environ.get("LOG_BASE_PATH", ".")
-    LOG.init(
-        config={
-            "level": os.environ.get("LOG_LEVEL", "INFO"),
-            "path": os.environ.get("LOG_PATH", os.getcwd()),
-        }
-    )
-    logger = LOG.create_logger("chat_client")
-    logger.addHandler(logging.StreamHandler())
-    LOG.info(f"Starting Klatchat Client v{app_version}")
-    chat_app = FastAPI(title="Klatchat Client", version=app_version)
+    chat_app = FastAPI(title=f"Klatchat Client ({KLAT_ENV})", version=app_version)
 
     @chat_app.middleware("http")
     async def log_requests(request: Request, call_next):
@@ -121,4 +109,7 @@ def create_app() -> FastAPI:
     chat_app.include_router(base_blueprint.router)
     chat_app.include_router(chat_blueprint.router)
     chat_app.include_router(components_blueprint.router)
+
+    LOG.info(f"Starting Klatchat Client v{app_version} (environment = {KLAT_ENV})")
+
     return chat_app
