@@ -6,16 +6,21 @@ on:
     branches:
       - dev
     paths-ignore:
-      - 'version.py'
+      - 'chat_client/version.py'
+      - 'CHANGELOG.md'
+      - 'README.md'
+      - 'LICENSE.md'
 
 jobs:
   publish_alpha_release:
     uses: neongeckocom/.github/.github/workflows/publish_alpha_release.yml@master
     secrets: inherit
     with:
-      version_file: "version.py"
-      publish_prerelease: true
-      publish_pypi: false
+      version_file: "chat_client/version.py"
+      setup_py: "setup.py"
+      publish_prerelease: True
+      publish_pypi: False
+      update_changelog: True
   build_and_publish_docker:
     needs: publish_alpha_release
     uses: neongeckocom/.github/.github/workflows/publish_docker.yml@master

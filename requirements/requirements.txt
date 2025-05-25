@@ -1,7 +1,8 @@
-fastapi==0.65.1
-Jinja2==3.0.1
-jsbeautifier==1.14.7
-requests==2.31.0
-uvicorn==0.14.0
-ovos_utils==0.0.35
-ovos_config>=0.0.11a10
+cachetools==5.5.0
+fastapi==0.115.6
+httpx==0.28.1  # required by FastAPI
+Jinja2==3.1.4
+klatchat-utils~=0.0,>=0.0.1a1
+neon_utils[sentry]~=1.12
+requests==2.32.3
+uvicorn==0.32.1

@@ -5,8 +5,9 @@ on:
   pull_request:
     branches:
       - master
+
 jobs:
   license_tests:
     uses: neongeckocom/.github/.github/workflows/license_tests.yml@master
     with:
-      packages-exclude: '^(pyklatchat-client|tqdm).*'
+      packages-exclude: '^(pyklatchat|neon|tqdm|RapidFuzz|typing_extensions).*'
