@@ -91,9 +91,11 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    static_suffix = (
-        "/build" if os.environ.get("KLAT_ENV", "dev").upper() == "PROD" else ""
-    )
+    # TODO: uncomment when fixed
+    # static_suffix = (
+    #     "/build" if os.environ.get("KLAT_ENV", "dev").upper() == "PROD" else ""
+    # )
+    static_suffix = ""
     chat_app.mount(
         "/css",
         StaticFiles(directory=f"chat_client/static/css{static_suffix}"),
