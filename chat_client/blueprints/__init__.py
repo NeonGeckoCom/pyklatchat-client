@@ -32,5 +32,5 @@ from chat_client.blueprints import (
     base as base_blueprint,
     chat as chat_blueprint,
     components as components_blueprint,
-    users as user_blueprint,
+    users as users_blueprint,
 )
