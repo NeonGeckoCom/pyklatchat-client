@@ -31,3 +31,8 @@ jobs:
         run: |
           cd scripts
           python minifier.py --working_dir ../chat_client/static/css --processing_pattern '.*\.css$' --skipping_pattern '.*\.min\.css$' --skip_dirs build
+
+      - name: Push Version Change
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: Added built frontend assets
