@@ -8,8 +8,8 @@ let loadedComponents = {}
 
 /**
  * Fetches template context into provided html template
- * @param html: HTML template
- * @param templateContext: object containing context to fetch
+ * @param html - HTML template
+ * @param templateContext - object containing context to fetch
  * @return {string} HTML with fetched context
  */
 function fetchTemplateContext(html, templateContext){
@@ -21,9 +21,9 @@ function fetchTemplateContext(html, templateContext){
 
 /**
  * Builds HTML from passed params and template name
- * @param templateName: name of the template to fetch
- * @param templateContext: properties from template to fetch
- * @param requestArgs: request string arguments (optional)
+ * @param templateName - name of the template to fetch
+ * @param templateContext - properties from template to fetch
+ * @param requestArgs - request string arguments (optional)
  * @returns built template string
  */
 async function buildHTMLFromTemplate(templateName, templateContext = {}, requestArgs=''){
@@ -50,9 +50,9 @@ async function buildHTMLFromTemplate(templateName, templateContext = {}, request
 
 /**
  * Get Node id based on language key
- * @param cid: desired conversation id
- * @param key: language key (e.g. 'en')
- * @param inputType: type of the language input to apply (incoming or outcoming)
+ * @param cid - desired conversation id
+ * @param key - language key (e.g. 'en')
+ * @param inputType - type of the language input to apply (incoming or outcoming)
  * @return {string} ID of Node
  */
 function getLangOptionID(cid, key, inputType='incoming'){
@@ -61,11 +61,11 @@ function getLangOptionID(cid, key, inputType='incoming'){
 
 /**
  * Build language selection HTML based on provided params
- * @param cid: desired conversation id
- * @param key: language key (e.g 'en')
- * @param name: name of the language (e.g. English)
- * @param icon: language icon (refers to flag-icon specs)
- * @param inputType: type of the language input to apply (incoming or outcoming)
+ * @param cid - desired conversation id
+ * @param key - language key (e.g 'en')
+ * @param name - name of the language (e.g. English)
+ * @param icon - language icon (refers to flag-icon specs)
+ * @param inputType - type of the language input to apply (incoming or outcoming)
  * @return {string} formatted langSelectPattern
  */
 async function buildLangOptionHTML(cid, key, name, icon, inputType){
@@ -79,14 +79,14 @@ async function buildLangOptionHTML(cid, key, name, icon, inputType){
 
 /**
  * Builds user message HTML
- * @param userData: data of message sender
- * @param cid: conversation id of target message
- * @param messageID: id of user message
- * @param messageText: text of user message
- * @param timeCreated: date of creation
- * @param isMine: if message was emitted by current user
- * @param isAudio: if message is audio message (defaults to '0')
- * @param isAnnouncement: is message if announcement (defaults to '0')
+ * @param userData - data of message sender
+ * @param cid - conversation id of target message
+ * @param messageID - id of user message
+ * @param messageText - text of user message
+ * @param timeCreated - date of creation
+ * @param isMine - if message was emitted by current user
+ * @param isAudio - if message is audio message (defaults to '0')
+ * @param isAnnouncement - is message if announcement (defaults to '0')
  * @returns {string}: constructed HTML out of input params
  */
 async function buildUserMessageHTML(userData, cid, messageID, messageText, timeCreated, isMine, isAudio = '0', isAnnouncement = '0'){
@@ -127,7 +127,7 @@ async function buildUserMessageHTML(userData, cid, messageID, messageText, timeC
 
 /**
  *
- * @param nick: nickname to shorten
+ * @param nick - nickname to shorten
  * @return {string} - shortened nickname
  */
 const shrinkNickname = (nick) => {
@@ -137,7 +137,7 @@ const shrinkNickname = (nick) => {
 
 /**
  * Generates dark color based on username
- * @param username
+ * @param username - target username
  * @returns {string} - generated color in hsl format
  */
 
@@ -154,30 +154,39 @@ function generateDarkColorFromUsername(username) {
 
 /**
  * Builds Prompt Skin HTML for submind responses
- * @param promptID: target prompt id
- * @param submindID: user id of submind
- * @param submindUserData: user data of submind
- * @param submindResponse: Responding data of submind to incoming prompt
- * @param submindOpinion: Discussion data of submind to incoming prompt
- * @param submindVote: Vote data of submind in prompt
+ * @param promptID - target prompt id
+ * @param submindID - user id of submind
+ * @param submindUserData - user data of submind
+ * @param submindResponse - Responding data of submind to incoming prompt
+ * @param submindOpinions - Discussion data of submind to incoming prompt
+ * @param submindVote - Vote data of submind in prompt
  * @return {Promise<string|void>} - Submind Data HTML populated with provided data
  */
-async function buildSubmindHTML(promptID, submindID, submindUserData, submindResponse, submindOpinion, submindVote) {
+async function buildSubmindHTML(promptID, submindID, submindUserData, submindResponse, submindOpinions, submindVote) {
     const userNickname = submindUserData['nickname'];
     const participantIcon = await buildPromptParticipantIcon(userNickname);
+    let templateData = {
+        'prompt_id': promptID,
+        'user_id': submindID,
+        'user_first_name': submindUserData['first_name'],
+        'user_last_name': submindUserData['last_name'],
+        'user_nickname': userNickname,
+        'participant_icon': participantIcon,
+        // 'user_avatar': `${configData["CHAT_SERVER_URL_BASE"]}/files/avatar/${submindID}`,
+    }
+
     const phaseDataObjectMapping = {
         'response': submindResponse,
-        'opinion': submindOpinion,
         'vote': submindVote
     }
-    let templateData = {
-            'prompt_id': promptID,
-            'user_id': submindID,
-            'user_first_name': submindUserData['first_name'],
-            'user_last_name': submindUserData['last_name'],
-            'user_nickname': userNickname,
-            'participant_icon': participantIcon,
-            // 'user_avatar': `${configData["CHAT_SERVER_URL_BASE"]}/files/avatar/${submindID}`,
+    let promptParticipantTemplate;
+    // Fallback to the single-discussion rounds
+    if (!Array.isArray(submindOpinions)) {
+        phaseDataObjectMapping['opinion'] = submindOpinions;
+        promptParticipantTemplate = 'prompt_participant'
+    }else{
+        templateData['submind_discussions'] = buildSubmindDiscussionHTML(promptID, userNickname, submindOpinions);
+        promptParticipantTemplate = 'prompt_participant_multi_discussions'
     }
     const submindPromptData = {}
     for (const [k,v] of Object.entries(phaseDataObjectMapping)){
@@ -187,15 +196,42 @@ async function buildSubmindHTML(promptID, submindID, submindUserData, submindRes
         submindPromptData[`${k}_created_on`] = v?.created_on;
         submindPromptData[`${k}_created_on_tooltip`] = dateCreated? `shouted on: ${dateCreated}`: `no ${k} from ${userNickname} in this prompt`;
     }
-    return await buildHTMLFromTemplate("prompt_participant", Object.assign(templateData, submindPromptData));
+
+    return await buildHTMLFromTemplate(promptParticipantTemplate, Object.assign(templateData, submindPromptData));
 }
 
 
 /**
+ * Builds the HTML string representation of a multi-round submind discussion table by processing the provided opinions for a given prompt ID and user nickname.
+ *
+ * @param {string} promptID - The unique identifier of the prompt for which the discussion is being generated.
+ * @param {string} userNickname - The nickname of the user whose discussion data is being processed.
+ * @param {Array<Object>} submindOpinions - An array of opinion objects from Submind, containing details such as message IDs and creation timestamps.
+ * @return {string} The generated HTML string representing the Submind discussion table rows.
+ */
+function buildSubmindDiscussionHTML(promptID, userNickname, submindOpinions) {
+    let html = '';
+    for (let i = 0; i < submindOpinions.length; i++){
+        const opinion = submindOpinions[i];
+        const createdOnTS = opinion?.created_on
+        const dateCreated = getTimeFromTimestamp(createdOnTS);
+        const createdOnTooltip = dateCreated? `shouted on: ${dateCreated}`: `no shout from ${userNickname} in this round`;
+
+        html += `<td id="${promptID}_${userNickname}_disc_${i}"
+                    data-created-on="${createdOnTS}"
+                    data-message-id="${opinion?.message_id}"
+                    data-toggle="tooltip"
+                    title="${createdOnTooltip}">${submindOpinions[i] || emptyAnswer}
+                </td>`
+    }
+    return html;
+}
+
+/**
  * Gets winner field HTML based on provided winner
  * @return {string} built winner field HTML
- * @param nickname of the winner
- * @param winner_response
+ * @param nickname - nick of the winner
+ * @param winner_response - shout of the winner
  */
 async function buildPromptWinnerHTML(nickname, winner_response) {
     return `
@@ -211,7 +247,7 @@ async function buildPromptWinnerHTML(nickname, winner_response) {
 
 /**
  * Builds prompt participant icon HTML
- * @param nickname of the participant
+ * @param nickname - nick of the participant
  * @returns prompt participant icon HTML
  */
 async function buildPromptParticipantIcon(nickname) {
@@ -230,9 +266,12 @@ async function buildPromptParticipantIcon(nickname) {
 }
 
 
+const emptyAnswer = `<h4>-</h4>`;
+
+
 /**
  * Builds prompt HTML from received prompt data
- * @param prompt: prompt object
+ * @param prompt - prompt object
  * @return Prompt HTML
  */
 async function buildPromptHTML(prompt) {
@@ -245,12 +284,22 @@ async function buildPromptHTML(prompt) {
             <span class="sr-only">Loading...</span>
         </div>`
     }
-    const emptyAnswer = `<h4>-</h4>`;
-    for (const submindID of Array.from(setDefault(promptData, 'participating_subminds', []))) {
-        let submindUserData;
+
+    const discussionRounds = promptData?.['discussion_rounds'];
+    const participatingSubminds = Array.from(setDefault(promptData, 'participating_subminds', []));
+    const searchedKeys = ['proposed_responses', 'votes'];
+
+    const hasMultiRoundDiscussion = !isEmpty(promptData?.["submind_discussion_history"]?.[submindID]);
+    if (hasMultiRoundDiscussion) {
+        searchedKeys.push("submind_discussion_history");
+    }else{
+        searchedKeys.push("submind_opinions");
+    }
+
+    for (const submindID of participatingSubminds) {
         try {
-            const searchedKeys = ['proposed_responses', 'submind_opinions', 'votes'];
-            let isLegacy = false;
+            let submindUserData;
+
             try {
                 submindUserData = prompt['user_mapping'][submindID][0];
             } catch (e) {
@@ -260,26 +309,31 @@ async function buildPromptHTML(prompt) {
                     'first_name': 'Klat',
                     'last_name': 'User',
                     'is_bot': '0'
-                }
-                isLegacy = true
+                };
             }
-            const data = {}
-            searchedKeys.forEach(key=>{
+
+            const data = {};
+
+            for (const key of searchedKeys) {
                 try {
-                    const messageId = promptData[key][submindID];
-                    let value = null;
-                    if (!isLegacy) {
-                        value = prompt['message_mapping'][messageId][0];
-                        value['message_id'] = messageId;
+                    const messageIds = promptData[key]?.[submindID];
+                    if (Array.isArray(messageIds)) {
+                        data[key] = messageIds.map(id => {
+                            const raw = prompt['message_mapping']?.[id]?.[0];
+                            return raw ? { ...raw, message_id: id } : { message_text: emptyAnswer };
+                        });
+                    } else {
+                        const id = messageIds;
+                        const raw = prompt['message_mapping']?.[id]?.[0];
+                        data[key] = raw ? { ...raw, message_id: id } : { message_text: emptyAnswer };
                     }
-                    if (!value) {
-                        value = {'message_text': emptyAnswer}
-                    }
-                    data[key] = value;
-                }catch (e) {
-                    data[key] = {'message_text': emptyAnswer};
+                } catch (e) {
+                    data[key] = Array.isArray(promptData[key]?.[submindID])
+                        ? promptData[key][submindID].map(() => ({message_text: emptyAnswer}))
+                        : {message_text: emptyAnswer};
                 }
-            });
+            }
+
             if (promptData['winner'] === submindUserData['nickname']) {
                 winnerFound = true;
                 promptData['winner'] = await buildPromptWinnerHTML(
@@ -287,28 +341,44 @@ async function buildPromptHTML(prompt) {
                     data.proposed_responses['message_text']
                 );
             }
-            submindsHTML += await buildSubmindHTML(prompt['_id'], submindID, submindUserData,
-                                                   data.proposed_responses, data.submind_opinions, data.votes);
-        }catch (e) {
+
+            submindsHTML += await buildSubmindHTML(
+                prompt['_id'],
+                submindID,
+                submindUserData,
+                data.proposed_responses,
+                data?.submind_discussion_history || data?.submind_opinions,
+                data.votes
+            );
+
+        } catch (e) {
             console.log(`Malformed data for ${submindID} (prompt_id=${prompt['_id']}) ex=${e}`);
         }
     }
     if (!winnerFound && prompt['is_completed'] === '1'){
         promptData['winner'] = 'Consensus not reached.'
     }
-    return await buildHTMLFromTemplate("prompt_table",
-        {'prompt_text': promptData['prompt_text'],
-            'selected_winner': promptData['winner'],
-            'prompt_participants_data': submindsHTML,
-            'prompt_id':prompt['_id'],
-            'cid': prompt['cid'],
-            'message_time': prompt['created_on']});
+
+    const discussionsHeader = !discussionRounds
+        ? `<th data-rtc-resizable="discussion">Discussion</th>`
+        : Array.from({ length: discussionRounds }, (_, i) =>
+            `<th data-rtc-resizable="discussion">Discussion (phase ${i + 1})</th>`).join('');
+
+    return await buildHTMLFromTemplate("prompt_table", {
+        'prompt_text': promptData['prompt_text'],
+        'selected_winner': promptData['winner'],
+        'prompt_participants_data': submindsHTML,
+        'prompt_id': prompt['_id'],
+        'cid': prompt['cid'],
+        'discussions_header': discussionsHeader,
+        'message_time': prompt['created_on']
+    });
 }
 
 /**
  * Gets user message HTML from received message data object
- * @param message: Message Object received
- * @param skin: conversation skin
+ * @param message - Message Object received
+ * @param skin - conversation skin
  * @return {Promise<string>} HTML by the provided message data
  */
 async function messageHTMLFromData(message, skin=CONVERSATION_SKINS.BASE){
@@ -334,7 +404,7 @@ async function messageHTMLFromData(message, skin=CONVERSATION_SKINS.BASE){
 
 /**
  * Builds HTML for received conversation data
- * @param conversationData: JS Object containing conversation data of type:
+ * @param conversationData - JS Object containing conversation data of type:
  * {
  *     '_id': 'id of conversation',
  *     'conversation_name': 'title of the conversation',
@@ -346,8 +416,8 @@ async function messageHTMLFromData(message, skin=CONVERSATION_SKINS.BASE){
  *         'created_on': 'creation time of the message'
  *     }, ... (num of user messages returned)]
  * }
- * @param skin: conversation skin to build
- * @returns {string} conversation HTML based on provided data
+ * @param skin - conversation skin to build
+ * @return {string} conversation HTML based on provided data
  */
 async function buildConversationHTML(conversationData = {}, skin = CONVERSATION_SKINS.BASE){
     const cid = conversationData['_id'];
@@ -378,8 +448,8 @@ async function buildConversationHTML(conversationData = {}, skin = CONVERSATION_
 
 /**
  * Builds suggestion HTML
- * @param cid: target conversation id
- * @param name: target conversation name
+ * @param cid - target conversation id
+ * @param name - target conversation name
  * @return {Promise<string|void>} HTML with fetched data
  */
 const buildSuggestionHTML = async (cid, name) => {
