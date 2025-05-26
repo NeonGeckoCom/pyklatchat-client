@@ -285,7 +285,7 @@ async function buildPromptHTML(prompt) {
         </div>`
     }
 
-    const discussionRounds = promptData?.['discussion_rounds'];
+    const discussionRounds = prompt?.['context']?.discussion_rounds;
     const participatingSubminds = Array.from(setDefault(promptData, 'participating_subminds', []));
     const searchedKeys = ['proposed_responses', 'votes'];
 
