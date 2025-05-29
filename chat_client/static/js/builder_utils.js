@@ -160,9 +160,10 @@ function generateDarkColorFromUsername(username) {
  * @param submindResponse - Responding data of submind to incoming prompt
  * @param submindOpinions - Discussion data of submind to incoming prompt
  * @param submindVote - Vote data of submind in prompt
+ * @param discussionRounds - number of discussion rounds (used for rendering)
  * @return {Promise<string|void>} - Submind Data HTML populated with provided data
  */
-async function buildSubmindHTML(promptID, submindID, submindUserData, submindResponse, submindOpinions, submindVote) {
+async function buildSubmindHTML(promptID, submindID, submindUserData, submindResponse, submindOpinions, submindVote, discussionRounds) {
     const userNickname = submindUserData['nickname'];
     const participantIcon = await buildPromptParticipantIcon(userNickname);
     let templateData = {
@@ -185,7 +186,7 @@ async function buildSubmindHTML(promptID, submindID, submindUserData, submindRes
         phaseDataObjectMapping['opinion'] = submindOpinions;
         promptParticipantTemplate = 'prompt_participant'
     }else{
-        templateData['submind_discussions'] = buildSubmindDiscussionHTML(promptID, userNickname, submindOpinions);
+        templateData['submind_discussions'] = buildSubmindDiscussionHTML(promptID, userNickname, submindOpinions, discussionRounds);
         promptParticipantTemplate = 'prompt_participant_multi_discussions'
     }
     const submindPromptData = {}
@@ -207,12 +208,20 @@ async function buildSubmindHTML(promptID, submindID, submindUserData, submindRes
  * @param {string} promptID - The unique identifier of the prompt for which the discussion is being generated.
  * @param {string} userNickname - The nickname of the user whose discussion data is being processed.
  * @param {Array<Object>} submindOpinions - An array of opinion objects from Submind, containing details such as message IDs and creation timestamps.
+ * @param discussionRounds - number of discussion rounds in prompt
  * @return {string} The generated HTML string representing the Submind discussion table rows.
  */
-function buildSubmindDiscussionHTML(promptID, userNickname, submindOpinions) {
+function buildSubmindDiscussionHTML(promptID, userNickname, submindOpinions, discussionRounds) {
     let html = '';
-    for (let i = 0; i < submindOpinions.length; i++){
-        const opinion = submindOpinions[i];
+    for (let i = 0; i < discussionRounds; i++){
+        let opinion;
+        // means that discussion phases were skipped
+        if (i > submindOpinions.length - 1){
+            opinion = {}
+        } else {
+            opinion = submindOpinions[i];
+        }
+
         const createdOnTS = opinion?.created_on
         const dateCreated = getTimeFromTimestamp(createdOnTS);
         const createdOnTooltip = dateCreated? `shouted on: ${dateCreated}`: `no shout from ${userNickname} in this round`;
@@ -221,7 +230,7 @@ function buildSubmindDiscussionHTML(promptID, userNickname, submindOpinions) {
                     data-created-on="${createdOnTS}"
                     data-message-id="${opinion?.message_id}"
                     data-toggle="tooltip"
-                    title="${createdOnTooltip}">${submindOpinions[i] || emptyAnswer}
+                    title="${createdOnTooltip}">${opinion?.message_text || emptyAnswer}
                 </td>`
     }
     return html;
@@ -289,7 +298,7 @@ async function buildPromptHTML(prompt) {
     const participatingSubminds = Array.from(setDefault(promptData, 'participating_subminds', []));
     const searchedKeys = ['proposed_responses', 'votes'];
 
-    const hasMultiRoundDiscussion = !isEmpty(promptData?.["submind_discussion_history"]?.[submindID]);
+    const hasMultiRoundDiscussion = !isEmpty(promptData?.["submind_discussion_history"]);
     if (hasMultiRoundDiscussion) {
         searchedKeys.push("submind_discussion_history");
     }else{
@@ -348,7 +357,8 @@ async function buildPromptHTML(prompt) {
                 submindUserData,
                 data.proposed_responses,
                 data?.submind_discussion_history || data?.submind_opinions,
-                data.votes
+                data.votes,
+                discussionRounds
             );
 
         } catch (e) {
