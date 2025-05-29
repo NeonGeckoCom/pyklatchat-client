@@ -25,6 +25,7 @@
 # LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
 # NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 # SOFTWARE,  EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+import importlib
 import random
 import string
 import os
@@ -42,11 +43,6 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from neon_utils.logger import LOG
 
-from chat_client.blueprints import (
-    base as base_blueprint,
-    chat as chat_blueprint,
-    components as components_blueprint,
-)
 from chat_client.version import __version__ as app_version
 
 
@@ -55,6 +51,8 @@ def create_app() -> FastAPI:
     Application factory for the Klatchat Client
     """
     chat_app = FastAPI(title=f"Klatchat Client ({KLAT_ENV})", version=app_version)
+
+    _init_blueprints(app=chat_app)
 
     @chat_app.middleware("http")
     async def log_requests(request: Request, call_next):
@@ -93,9 +91,11 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    static_suffix = (
-        "/build" if os.environ.get("KLAT_ENV", "dev").upper() == "PROD" else ""
-    )
+    # TODO: uncomment when fixed
+    # static_suffix = (
+    #     "/build" if os.environ.get("KLAT_ENV", "dev").upper() == "PROD" else ""
+    # )
+    static_suffix = ""
     chat_app.mount(
         "/css",
         StaticFiles(directory=f"chat_client/static/css{static_suffix}"),
@@ -106,10 +106,16 @@ def create_app() -> FastAPI:
     )
     chat_app.mount("/img", StaticFiles(directory=f"chat_client/static/img"), name="img")
 
-    chat_app.include_router(base_blueprint.router)
-    chat_app.include_router(chat_blueprint.router)
-    chat_app.include_router(components_blueprint.router)
-
     LOG.info(f"Starting Klatchat Client v{app_version} (environment = {KLAT_ENV})")
 
     return chat_app
+
+
+def _init_blueprints(app: FastAPI):
+    blueprint_module = importlib.import_module("chat_client.blueprints")
+    for blueprint_module_name in dir(blueprint_module):
+        if blueprint_module_name.endswith("blueprint"):
+            blueprint_obj = importlib.import_module(
+                f"chat_client.blueprints.{blueprint_module_name.split('_blueprint')[0]}"
+            )
+            app.include_router(blueprint_obj.router)
