@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - dev
+      - alpha
     paths-ignore:
       - 'chat_client/version.py'
       - 'CHANGELOG.md'
@@ -14,6 +15,10 @@ on:
 jobs:
   build-artifacts:
     uses: ./.github/workflows/build_artifacts.yml
+  bump-dynamic-dependencies:
+    uses: ./.github/workflows/bump_dynamic_dependencies.yml
+  build-nano-assets:
+    uses: ./.github/workflows/build_nano_assets.yml
   publish_alpha_release:
     needs: build-artifacts
     uses: neongeckocom/.github/.github/workflows/publish_alpha_release.yml@master
