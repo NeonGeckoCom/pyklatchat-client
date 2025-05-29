@@ -26,6 +26,11 @@
 # NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 # SOFTWARE,  EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-
-__version__ = "0.0.2a1"
-__version_ts__ = 1743026544
+# Import blueprint here to include it to Web App
+from chat_client.blueprints import (
+    auth as auth_blueprint,
+    base as base_blueprint,
+    chat as chat_blueprint,
+    components as components_blueprint,
+    users as users_blueprint,
+)

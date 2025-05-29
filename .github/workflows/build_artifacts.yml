@@ -1,0 +1,38 @@
+name: Publish Build and GitHub Release
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: write
+  pull-requests: write
+  packages: write
+
+jobs:
+  build-artifacts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref_name }}
+
+      - name: Install Node.js and npm
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nodejs npm
+
+      - name: Build minified JS files
+        run: |
+          cd scripts
+          python minifier.py --working_dir ../chat_client/static/js --processing_pattern '.*\.js$' --skipping_pattern '.*\.min\.js$' --skip_dirs build
+
+      - name: Build minified CSS files
+        run: |
+          cd scripts
+          python minifier.py --working_dir ../chat_client/static/css --processing_pattern '.*\.css$' --skipping_pattern '.*\.min\.css$' --skip_dirs build
+
+      - name: Push Version Change
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: Added built frontend assets
