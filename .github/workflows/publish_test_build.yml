@@ -16,11 +16,13 @@ jobs:
   build-artifacts:
     uses: ./.github/workflows/build_artifacts.yml
   bump-dynamic-dependencies:
+    needs: build-artifacts
     uses: ./.github/workflows/bump_dynamic_dependencies.yml
   build-nano-assets:
+    needs: bump-dynamic-dependencies
     uses: ./.github/workflows/build_nano_assets.yml
   publish_alpha_release:
-    needs: build-artifacts
+    needs: build-nano-assets
     uses: neongeckocom/.github/.github/workflows/publish_alpha_release.yml@master
     secrets: inherit
     with:
