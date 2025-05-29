@@ -3,14 +3,11 @@ on:
   workflow_dispatch:
   workflow_call:
 
-permissions:
-  contents: write
-  pull-requests: write
-  packages: write
-
 jobs:
   build-artifacts:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
         with:
