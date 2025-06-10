@@ -29,12 +29,3 @@ jobs:
       - name: Run formatter validation
         run: |
           pre-commit install && pre-commit run --all-files
-
-#      - name: Test Units
-#        run: |
-#          pytest tests --doctest-modules --junitxml=tests/unit-test-results.xml
-#      - name: Upload test results
-#        uses: actions/upload-artifact@v4
-#        with:
-#          name: unit-test-results-${{ matrix.python-version }}
-#          path: tests/unit-test-results.xml
