@@ -5,7 +5,6 @@ on:
   push:
     branches:
       - dev
-      - alpha
     paths-ignore:
       - 'chat_client/version.py'
       - 'CHANGELOG.md'
