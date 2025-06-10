@@ -1,4 +1,4 @@
-name: Publish Build and GitHub Release
+name: Build Frontend Assets
 on:
   workflow_dispatch:
   workflow_call:
@@ -29,7 +29,7 @@ jobs:
           cd scripts
           python minifier.py --working_dir ../chat_client/static/css --processing_pattern '.*\.css$' --skipping_pattern '.*\.min\.css$' --skip_dirs build
 
-      - name: Push Version Change
+      - name: Push Updated assets
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: Added built frontend assets

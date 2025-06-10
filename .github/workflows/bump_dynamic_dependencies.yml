@@ -3,7 +3,7 @@ on:
   workflow_call:
 
 jobs:
-  build_and_publish:
+  update_dynamic_dependencies:
     runs-on: ubuntu-latest
     permissions:
       contents: write

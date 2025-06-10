@@ -3,7 +3,7 @@ on:
   workflow_call:
 
 jobs:
-  build_and_publish:
+  build_nano-assets:
     runs-on: ubuntu-latest
     permissions:
       contents: write
