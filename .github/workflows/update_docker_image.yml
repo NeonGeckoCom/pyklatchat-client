@@ -1,11 +1,23 @@
-name: Publish Updated Docker image
+name: Publish updated Docker image
 on:
   workflow_dispatch:
+    inputs:
+      tag_alpha:
+        type: boolean
+        default: false
+        description: "If true, publish with additional `alpha` tag"
 
 jobs:
-
-  build_and_publish_docker:
+  build_and_publish_docker_alpha:
+    if: ${{ github.event.inputs.tag_alpha == 'true' }}
     uses: neongeckocom/.github/.github/workflows/publish_docker.yml@master
-    secrets: inherit
     with:
-      include_semver: False
+      image_tag: "alpha"
+      include_semver: false
+    secrets: inherit
+  build_and_publish_docker:
+    if: ${{ github.event.inputs.tag_alpha != 'true' }}
+    uses: neongeckocom/.github/.github/workflows/publish_docker.yml@master
+    with:
+      include_semver: false
+    secrets: inherit
