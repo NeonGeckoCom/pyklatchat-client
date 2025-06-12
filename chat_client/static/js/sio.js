@@ -72,7 +72,7 @@ function initSIO(){
     });
 
     socket.on('new_prompt_message', async (message) => {
-        await addPromptMessage(message['cid'], message['userID'], message['messageText'], message['promptID'], message['promptState'])
+        await addPromptMessage(message['cid'], message['userID'], message['messageText'], message['promptID'], message['promptState'], message?.context)
                 .catch(err => console.error('Error occurred while adding new prompt data: ', err));
     });
 
@@ -82,9 +82,17 @@ function initSIO(){
         console.info(`setting prompt_id=${promptID} as completed`);
         if (promptElem){
             const promptWinner = document.getElementById(`${promptID}_winner`);
-            const winner_response = document.getElementById(`${promptID}_${data['winner']}_resp`).innerText;
-            console.log("data:", data)
-            promptWinner.innerHTML = await buildPromptWinnerHTML(data['winner'], winner_response);
+            let winnerResponse;
+            if (data?.winner){
+                const winnerRespHTML = document.getElementById(`${promptID}_${data.winner}_resp`);
+                if (winnerRespHTML) {
+                    winnerResponse = winnerRespHTML.innerText;
+                }
+            }
+            if (!winnerResponse){
+                winnerResponse = "Consensus not reached."
+            }
+            promptWinner.innerHTML = await buildPromptWinnerHTML(data['winner'], winnerResponse);
         }else {
             console.warn(`Failed to get HTML element from prompt_id=${promptID}`);
         }
