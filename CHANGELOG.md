@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.2a4](https://github.com/NeonGeckoCom/pyklatchat-client/tree/0.0.2a4) (2025-06-12)
+
+[Full Changelog](https://github.com/NeonGeckoCom/pyklatchat-client/compare/0.0.2a3...0.0.2a4)
+
+**Merged pull requests:**
+
+- Fix race condition in GHA [\#8](https://github.com/NeonGeckoCom/pyklatchat-client/pull/8) ([NeonDaniel](https://github.com/NeonDaniel))
+
 ## [0.0.2a3](https://github.com/NeonGeckoCom/pyklatchat-client/tree/0.0.2a3) (2025-06-10)
 
 [Full Changelog](https://github.com/NeonGeckoCom/pyklatchat-client/compare/0.0.3a1...0.0.2a3)
