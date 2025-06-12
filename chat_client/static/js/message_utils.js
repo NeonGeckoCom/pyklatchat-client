@@ -106,25 +106,29 @@ const getUserPromptTR = (promptID, userID) => {
 
 /**
  * Adds prompt message of specified user id
- * @param cid: target conversation id
- * @param userID: target submind user id
- * @param messageText: message of submind
- * @param promptId: target prompt id
- * @param promptState: prompt state to consider
+ * @param cid - target conversation id
+ * @param userID - target submind user id
+ * @param messageText - message of submind
+ * @param promptId - target prompt id
+ * @param promptState - prompt state to consider
+ * @param promptContext - associated prompt's context
  */
-async function addPromptMessage(cid, userID, messageText, promptId, promptState){
+async function addPromptMessage(cid, userID, messageText, promptId, promptState, promptContext){
     const tableBody = document.getElementById(`${promptId}_tbody`);
     if (await getCurrentSkin(cid) === CONVERSATION_SKINS.PROMPTS){
         try {
             const userData = await getUserData(userID);
             promptState = PROMPT_STATES[promptState].toLowerCase();
             if (!getUserPromptTR(promptId, userID)) {
-                const newUserRow = await buildSubmindHTML(promptId, userID, userData, '', '', '');
+                const newUserRow = await buildSubmindHTML(promptId, userID, userData, '', '', '', promptContext?.discussion_rounds);
                 tableBody.insertAdjacentHTML('beforeend', newUserRow);
             }
             try {
-                console.log("userData:", userData)
-                const messageElem = document.getElementById(`${promptId}_${userData['nickname']}_${promptState}`);
+                let messageElemId = `${promptId}_${userData['nickname']}_${promptState}`
+                if (promptState === "disc" && promptContext?.discussion_rounds > 1 && promptContext?.discussion_counter){
+                    messageElemId += `_${promptContext?.discussion_counter}`
+                }
+                const messageElem = document.getElementById(messageElemId);
                 messageElem.innerText = messageText;
             } catch (e) {
                 console.warn(`Failed to add prompt message (${cid},${userID}, ${messageText}, ${promptId}, ${promptState}) - ${e}`)
@@ -182,7 +186,7 @@ async function addOldMessages(cid, skin=CONVERSATION_SKINS.BASE) {
             const firstMessageItem = messageContainer.children[i];
             const oldestMessageTS = await DBGateway.getInstance(DB_TABLES.CHAT_MESSAGES_PAGINATION).getItem(cid).then(res=> res?.oldest_created_on || null);
             if (oldestMessageTS) {
-                const numMessages = await getCurrentSkin(cid) === CONVERSATION_SKINS.PROMPTS? 30: 10;
+                const numMessages = await getCurrentSkin(cid) === CONVERSATION_SKINS.PROMPTS? 50: 10;
                 await getConversationDataByInput( cid, skin, oldestMessageTS, numMessages ).then( async conversationData => {
                     if (messageContainer) {
                         const userMessageList = getUserMessages( conversationData, null );

@@ -177,12 +177,12 @@ async function buildSubmindHTML(promptID, submindID, submindUserData, submindRes
     }
 
     const phaseDataObjectMapping = {
-        'response': submindResponse,
-        'vote': submindVote
+        'response': submindResponse  || emptyAnswer,
+        'vote': submindVote || emptyAnswer
     }
     let promptParticipantTemplate;
     // Fallback to the single-discussion rounds
-    if (!Array.isArray(submindOpinions)) {
+    if (!discussionRounds || discussionRounds === 1) {
         phaseDataObjectMapping['opinion'] = submindOpinions;
         promptParticipantTemplate = 'prompt_participant'
     }else{
@@ -213,13 +213,16 @@ async function buildSubmindHTML(promptID, submindID, submindUserData, submindRes
  */
 function buildSubmindDiscussionHTML(promptID, userNickname, submindOpinions, discussionRounds) {
     let html = '';
-    for (let i = 0; i < discussionRounds; i++){
+    if (!submindOpinions){
+        submindOpinions = [];
+    }
+    for (let i = 1; i <= discussionRounds; i++){
         let opinion;
         // means that discussion phases were skipped
-        if (i > submindOpinions.length - 1){
+        if (i > submindOpinions.length){
             opinion = {}
         } else {
-            opinion = submindOpinions[i];
+            opinion = submindOpinions[i - 1];
         }
 
         const createdOnTS = opinion?.created_on
@@ -243,15 +246,25 @@ function buildSubmindDiscussionHTML(promptID, userNickname, submindOpinions, dis
  * @param winner_response - shout of the winner
  */
 async function buildPromptWinnerHTML(nickname, winner_response) {
-    return `
-    <div class="d-flex flex-column align-items-center justify-content-center">
-        <span class="mt-2 mb-3 font-weight-bold">Selected winner</span>
-        ${await buildPromptParticipantIcon(nickname)}
-        <div style="max-width: 400px; margin-top: 20px;">
-            ${winner_response}
-        </div>
-    </div>
-    `
+    let html;
+    if (nickname){
+        html = `
+            <div class="d-flex flex-column align-items-center justify-content-center">
+                <span class="mt-2 mb-3 font-weight-bold">Selected winner</span>
+                ${await buildPromptParticipantIcon(nickname)}
+                <div style="max-width: 400px; margin-top: 20px;">
+                    ${winner_response}
+                </div>
+            </div>
+        `
+    }else{
+        html = `
+            <div class="d-flex flex-column align-items-center justify-content-center" style="font-weight: normal">
+                Consensus not reached.
+            </div>
+        `
+    }
+    return html;
 }
 
 /**
@@ -369,6 +382,12 @@ async function buildPromptHTML(prompt) {
         promptData['winner'] = 'Consensus not reached.'
     }
 
+    let tableRowLength = 4;
+
+    if (discussionRounds){
+        tableRowLength += discussionRounds - 1;
+    }
+
     const discussionsHeader = !discussionRounds
         ? `<th data-rtc-resizable="discussion">Discussion</th>`
         : Array.from({ length: discussionRounds }, (_, i) =>
@@ -381,7 +400,8 @@ async function buildPromptHTML(prompt) {
         'prompt_id': prompt['_id'],
         'cid': prompt['cid'],
         'discussions_header': discussionsHeader,
-        'message_time': prompt['created_on']
+        'message_time': prompt['created_on'],
+        'tr_length': tableRowLength
     });
 }
 
