@@ -22,10 +22,6 @@ jobs:
       - name: Install Build Tools
         run: |
           python -m pip install build wheel
-      - name: Increment Version
-        run: |
-          VER=$(python setup.py --version)
-          python version_bump.py -b ${{ github.ref_name }}
       - name: Install JS Beautifier
         if: github.ref == 'refs/heads/alpha'
         run: |
@@ -38,7 +34,7 @@ jobs:
         if: github.ref == 'refs/heads/alpha'
         working-directory: ./
         run: python ./scripts/file_merger.py --working_dir ./chat_client/static --weighted_dirs 1=['css'] --skip_files sidebar.css klatchatNano.css --save_to ./css/klatchatNano.css --beautify 0
-      - name: Push Version Change
+      - name: Push Static Files
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: Updated Version and Dynamic Dependencies
+          commit_message: Updated Dynamic Dependencies
