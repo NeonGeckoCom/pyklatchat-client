@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.2a5](https://github.com/NeonGeckoCom/pyklatchat-client/tree/0.0.2a5) (2025-06-12)
+
+[Full Changelog](https://github.com/NeonGeckoCom/pyklatchat-client/compare/0.0.2a4...0.0.2a5)
+
+**Merged pull requests:**
+
+- Update Docker automation to support "alpha" tagged image builds [\#9](https://github.com/NeonGeckoCom/pyklatchat-client/pull/9) ([NeonDaniel](https://github.com/NeonDaniel))
+
 ## [0.0.2a4](https://github.com/NeonGeckoCom/pyklatchat-client/tree/0.0.2a4) (2025-06-12)
 
 [Full Changelog](https://github.com/NeonGeckoCom/pyklatchat-client/compare/0.0.2a3...0.0.2a4)
