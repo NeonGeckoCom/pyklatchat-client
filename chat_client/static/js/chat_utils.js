@@ -387,7 +387,7 @@ async function buildConversation(conversationData, skin, remember=true,conversat
  * @param maxResults - max number of messages to fetch
  * @returns {Promise<{}>} promise resolving conversation data returned
  */
-async function getConversationDataByInput(input, skin, oldestMessageTS=null, maxResults=10){
+async function getConversationDataByInput(input, skin, oldestMessageTS=null, maxResults=30){
     let conversationData = {};
     if(input){
         let query_url = `chat_api/search/${input.toString()}?limit_chat_history=${maxResults}&skin=${skin}`;
@@ -696,7 +696,7 @@ async function displayConversation(searchStr, skin=CONVERSATION_SKINS.PROMPTS, a
     }
     else if (searchStr !== "") {
         const alertParent = document.getElementById(alertParentID || conversationParentID);
-        await getConversationDataByInput(searchStr, skin, null, 10).then(async conversationData => {
+        await getConversationDataByInput(searchStr, skin, null).then(async conversationData => {
             let responseOk = false;
             if (!conversationData || Object.keys(conversationData).length === 0){
                 displayAlert(
