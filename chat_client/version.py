@@ -27,5 +27,5 @@
 # SOFTWARE,  EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-__version__ = "0.0.2a5"
-__version_ts__ = 1749770233
+__version__ = "0.0.2a6"
+__version_ts__ = 1758848000
