@@ -1,5 +1,980 @@
 
 /**
+ * Object representing loaded HTML components mapping:
+ * - key: component name,
+ * - value: HTML template that should be populated with actual data)
+ * @type Object
+ */
+let loadedComponents = {}
+
+/**
+ * Fetches template context into provided html template
+ * @param html - HTML template
+ * @param templateContext - object containing context to fetch
+ * @return {string} HTML with fetched context
+ */
+function fetchTemplateContext(html, templateContext) {
+    for (const [key, value] of Object.entries(templateContext)) {
+        html = html.replaceAll('{' + key + '}', value);
+    }
+    return html;
+}
+
+/**
+ * Builds HTML from passed params and template name
+ * @param templateName - name of the template to fetch
+ * @param templateContext - properties from template to fetch
+ * @param requestArgs - request string arguments (optional)
+ * @returns built template string
+ */
+async function buildHTMLFromTemplate(templateName, templateContext = {}, requestArgs = '') {
+    if (!configData['DISABLE_CACHING'] && loadedComponents.hasOwnProperty(templateName) && !requestArgs) {
+        const html = loadedComponents[templateName];
+        return fetchTemplateContext(html, templateContext);
+    } else {
+        return await fetch(`${configData['currentURLBase']}/components/${templateName}?${requestArgs}`)
+            .then((response) => {
+                if (response.ok) {
+                    return response.text();
+                }
+                throw `template unreachable (HTTP STATUS:${response.status}: ${response.statusText})`
+            })
+            .then((html) => {
+                if (!(configData['DISABLE_CACHING'] || loadedComponents.hasOwnProperty(templateName) || requestArgs)) {
+                    loadedComponents[templateName] = html;
+                }
+                return fetchTemplateContext(html, templateContext);
+            }).catch(err => console.warn(`Failed to fetch template for ${templateName}: ${err}`));
+    }
+}
+
+
+/**
+ * Get Node id based on language key
+ * @param cid - desired conversation id
+ * @param key - language key (e.g. 'en')
+ * @param inputType - type of the language input to apply (incoming or outcoming)
+ * @return {string} ID of Node
+ */
+function getLangOptionID(cid, key, inputType = 'incoming') {
+    return `language-option-${cid}-${inputType}-${key}`;
+}
+
+/**
+ * Build language selection HTML based on provided params
+ * @param cid - desired conversation id
+ * @param key - language key (e.g 'en')
+ * @param name - name of the language (e.g. English)
+ * @param icon - language icon (refers to flag-icon specs)
+ * @param inputType - type of the language input to apply (incoming or outcoming)
+ * @return {string} formatted langSelectPattern
+ */
+async function buildLangOptionHTML(cid, key, name, icon, inputType) {
+    return await buildHTMLFromTemplate('lang_option', {
+        'itemId': getLangOptionID(cid, key, inputType),
+        'key': key,
+        'name': name,
+        'icon': icon
+    })
+}
+
+/**
+ * Builds user message HTML
+ * @param userData - data of message sender
+ * @param cid - conversation id of target message
+ * @param messageID - id of user message
+ * @param messageText - text of user message
+ * @param timeCreated - date of creation
+ * @param isMine - if message was emitted by current user
+ * @param isAudio - if message is audio message (defaults to '0')
+ * @param isAnnouncement - is message if announcement (defaults to '0')
+ * @returns {string}: constructed HTML out of input params
+ */
+async function buildUserMessageHTML(userData, cid, messageID, messageText, timeCreated, isMine, isAudio = '0', isAnnouncement = '0') {
+    const messageTime = getTimeFromTimestamp(timeCreated);
+    let shortedNick = `${userData['nickname'][0]}${userData['nickname'][userData['nickname'].length - 1]}`;
+    let imageComponent = `<p>${shortedNick}</p>`;
+    // if (userData.hasOwnProperty('avatar') && userData['avatar']){
+    //     imageComponent = `<img alt="${shortedNick}" onerror="handleImgError(this);" src="${configData["CHAT_SERVER_URL_BASE"]}/files/avatar/${userData['_id']}" loading="lazy">`
+    // }
+    const messageClass = isAnnouncement === '1' ? 'announcement' : isMine ? 'in' : 'out';
+    const messageOrientation = isMine ? 'right' : 'left';
+    let minificationEnabled = currentUser?.preferences?.minify_messages === '1' || await getCurrentSkin(cid) === CONVERSATION_SKINS.PROMPTS;
+    let templateSuffix = minificationEnabled ? '_minified' : '';
+    const templateName = isAudio === '1' ? `user_message_audio${templateSuffix}` : `user_message${templateSuffix}`;
+    if (isAudio === '0') {
+        messageText = messageText.replaceAll('\n', '<br>');
+    }
+    let statusIconHTML = '';
+    let userTooltip = userData['nickname'];
+    if (userData?.is_bot === '1') {
+        statusIconHTML = ' <span class="fa fa-robot"></span>'
+        userTooltip = `bot ${userTooltip}`
+    }
+    return await buildHTMLFromTemplate(templateName, {
+        'message_class': messageClass,
+        'is_announcement': isAnnouncement,
+        'image_component': imageComponent,
+        'message_id': messageID,
+        'user_tooltip': userTooltip,
+        'nickname': userData['nickname'],
+        'nickname_shrunk': shrinkToFit(userData['nickname'], 15, '..'),
+        'status_icon': statusIconHTML,
+        'message_text': messageText,
+        'message_orientation': messageOrientation,
+        'audio_url': `${configData["CHAT_SERVER_URL_BASE"]}/files/audio/${messageID}`,
+        'message_time': messageTime
+    });
+}
+
+/**
+ *
+ * @param nick - nickname to shorten
+ * @return {string} - shortened nickname
+ */
+const shrinkNickname = (nick) => {
+    const index = nick.indexOf('_');
+    return (index !== -1 && index < 7) ? nick.substring(0, index) : nick.substring(0, 7);
+}
+
+/**
+ * Generates dark color based on username
+ * @param username - target username
+ * @returns {string} - generated color in hsl format
+ */
+
+function generateDarkColorFromUsername(username) {
+    if (!username) {
+        return 'hsl(270, 70%, 30%)';
+    }
+    let hash = 0;
+    for (let i = 0; i < username.length; i++) {
+        hash = username.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    return `hsl(${hash % 360}, 70%, 30%)`;
+}
+
+/**
+ * Builds Prompt Skin HTML for submind responses
+ * @param promptID - target prompt id
+ * @param submindID - user id of submind
+ * @param submindUserData - user data of submind
+ * @param submindResponse - Responding data of submind to incoming prompt
+ * @param submindOpinions - Discussion data of submind to incoming prompt
+ * @param submindVote - Vote data of submind in prompt
+ * @param discussionRounds - number of discussion rounds (used for rendering)
+ * @return {Promise<string|void>} - Submind Data HTML populated with provided data
+ */
+async function buildSubmindHTML(promptID, submindID, submindUserData, submindResponse, submindOpinions, submindVote, discussionRounds) {
+    const userNickname = submindUserData['nickname'];
+    const participantIcon = await buildPromptParticipantIcon(userNickname);
+    let templateData = {
+        'prompt_id': promptID,
+        'user_id': submindID,
+        'user_first_name': submindUserData['first_name'],
+        'user_last_name': submindUserData['last_name'],
+        'user_nickname': userNickname,
+        'participant_icon': participantIcon,
+        // 'user_avatar': `${configData["CHAT_SERVER_URL_BASE"]}/files/avatar/${submindID}`,
+    }
+
+    const phaseDataObjectMapping = {
+        'response': submindResponse || emptyAnswer,
+        'vote': submindVote || emptyAnswer
+    }
+    let promptParticipantTemplate;
+    // Fallback to the single-discussion rounds
+    if (!discussionRounds || discussionRounds === 1) {
+        phaseDataObjectMapping['opinion'] = submindOpinions;
+        promptParticipantTemplate = 'prompt_participant'
+    } else {
+        templateData['submind_discussions'] = buildSubmindDiscussionHTML(promptID, userNickname, submindOpinions, discussionRounds);
+        promptParticipantTemplate = 'prompt_participant_multi_discussions'
+    }
+    const submindPromptData = {}
+    for (const [k, v] of Object.entries(phaseDataObjectMapping)) {
+        submindPromptData[k] = v.message_text
+        submindPromptData[`${k}_message_id`] = v?.message_id
+        const dateCreated = getTimeFromTimestamp(v?.created_on);
+        submindPromptData[`${k}_created_on`] = v?.created_on;
+        submindPromptData[`${k}_created_on_tooltip`] = dateCreated ? `shouted on: ${dateCreated}` : `no ${k} from ${userNickname} in this prompt`;
+    }
+
+    return await buildHTMLFromTemplate(promptParticipantTemplate, Object.assign(templateData, submindPromptData));
+}
+
+
+/**
+ * Builds the HTML string representation of a multi-round submind discussion table by processing the provided opinions for a given prompt ID and user nickname.
+ *
+ * @param {string} promptID - The unique identifier of the prompt for which the discussion is being generated.
+ * @param {string} userNickname - The nickname of the user whose discussion data is being processed.
+ * @param {Array<Object>} submindOpinions - An array of opinion objects from Submind, containing details such as message IDs and creation timestamps.
+ * @param discussionRounds - number of discussion rounds in prompt
+ * @return {string} The generated HTML string representing the Submind discussion table rows.
+ */
+function buildSubmindDiscussionHTML(promptID, userNickname, submindOpinions, discussionRounds) {
+    let html = '';
+    if (!submindOpinions) {
+        submindOpinions = [];
+    }
+    for (let i = 1; i <= discussionRounds; i++) {
+        let opinion;
+        // means that discussion phases were skipped
+        if (i > submindOpinions.length) {
+            opinion = {}
+        } else {
+            opinion = submindOpinions[i - 1];
+        }
+
+        const createdOnTS = opinion?.created_on
+        const dateCreated = getTimeFromTimestamp(createdOnTS);
+        const createdOnTooltip = dateCreated ? `shouted on: ${dateCreated}` : `no shout from ${userNickname} in this round`;
+
+        html += `<td id="${promptID}_${userNickname}_disc_${i}"
+data-created-on="${createdOnTS}"
+data-message-id="${opinion?.message_id}"
+data-toggle="tooltip"
+title="${createdOnTooltip}">${opinion?.message_text || emptyAnswer}
+</td>`
+    }
+    return html;
+}
+
+/**
+ * Gets winner field HTML based on provided winner
+ * @return {string} built winner field HTML
+ * @param nickname - nick of the winner
+ * @param winner_response - shout of the winner
+ */
+async function buildPromptWinnerHTML(nickname, winner_response) {
+    let html;
+    if (nickname) {
+        html = `
+<div class="d-flex flex-column align-items-center justify-content-center">
+<span class="mt-2 mb-3 font-weight-bold">Selected winner</span>
+${await buildPromptParticipantIcon(nickname)}
+<div style="max-width: 400px; margin-top: 20px;">
+${winner_response}
+</div>
+</div>
+`
+    } else {
+        html = `
+<div class="d-flex flex-column align-items-center justify-content-center" style="font-weight: normal">
+Consensus not reached.
+</div>
+`
+    }
+    return html;
+}
+
+/**
+ * Builds prompt participant icon HTML
+ * @param nickname - nick of the participant
+ * @returns prompt participant icon HTML
+ */
+async function buildPromptParticipantIcon(nickname) {
+    const backgroundColor = generateDarkColorFromUsername(nickname);
+    const userNicknameShrunk = shrinkNickname(nickname);
+    let tooltip = nickname;
+    /* if (submindUserData['is_bot'])  assuming only bots participate for now*/
+    tooltip = `bot ${tooltip}`;
+    const template_data = {
+        'user_nickname': nickname,
+        'user_nickname_shrunk': userNicknameShrunk,
+        'background_color': backgroundColor,
+        // 'user_avatar': submindUserData['user_avatar'], not used for now
+        'tooltip': tooltip
+    }
+    return await buildHTMLFromTemplate("prompt_participant_icon", template_data)
+}
+
+
+const emptyAnswer = `<h4>-</h4>`;
+
+
+/**
+ * Builds prompt HTML from received prompt data
+ * @param prompt - prompt object
+ * @return Prompt HTML
+ */
+async function buildPromptHTML(prompt) {
+    let submindsHTML = "";
+    let winnerFound = false;
+    const promptData = prompt['data'];
+    if (prompt['is_completed'] === '0') {
+        promptData['winner'] = `Prompt in progress
+<div class="spinner-border spinner-border-sm text-dark" role="status">
+<span class="sr-only">Loading...</span>
+</div>`
+    }
+
+    const discussionRounds = prompt?.['context']?.discussion_rounds;
+    const participatingSubminds = Array.from(setDefault(promptData, 'participating_subminds', []));
+    const searchedKeys = ['proposed_responses', 'votes'];
+
+    const hasMultiRoundDiscussion = !isEmpty(promptData?.["submind_discussion_history"]);
+    if (hasMultiRoundDiscussion) {
+        searchedKeys.push("submind_discussion_history");
+    } else {
+        searchedKeys.push("submind_opinions");
+    }
+
+    for (const submindID of participatingSubminds) {
+        try {
+            let submindUserData;
+
+            try {
+                submindUserData = prompt['user_mapping'][submindID][0];
+            } catch (e) {
+                console.warn('Detected legacy prompt structure');
+                submindUserData = {
+                    'nickname': submindID,
+                    'first_name': 'Klat',
+                    'last_name': 'User',
+                    'is_bot': '0'
+                };
+            }
+
+            const data = {};
+
+            for (const key of searchedKeys) {
+                try {
+                    const messageIds = promptData[key]?.[submindID];
+                    if (Array.isArray(messageIds)) {
+                        data[key] = messageIds.map(id => {
+                            const raw = prompt['message_mapping']?.[id]?.[0];
+                            return raw ? {
+                                ...raw,
+                                message_id: id
+                            } : {
+                                message_text: emptyAnswer
+                            };
+                        });
+                    } else {
+                        const id = messageIds;
+                        const raw = prompt['message_mapping']?.[id]?.[0];
+                        data[key] = raw ? {
+                            ...raw,
+                            message_id: id
+                        } : {
+                            message_text: emptyAnswer
+                        };
+                    }
+                } catch (e) {
+                    data[key] = Array.isArray(promptData[key]?.[submindID]) ?
+                        promptData[key][submindID].map(() => ({
+                            message_text: emptyAnswer
+                        })) :
+                        {
+                            message_text: emptyAnswer
+                        };
+                }
+            }
+
+            if (promptData['winner'] === submindUserData['nickname']) {
+                winnerFound = true;
+                promptData['winner'] = await buildPromptWinnerHTML(
+                    submindUserData['nickname'],
+                    data.proposed_responses['message_text']
+                );
+            }
+
+            submindsHTML += await buildSubmindHTML(
+                prompt['_id'],
+                submindID,
+                submindUserData,
+                data.proposed_responses,
+                data?.submind_discussion_history || data?.submind_opinions,
+                data.votes,
+                discussionRounds
+            );
+
+        } catch (e) {
+            console.log(`Malformed data for ${submindID} (prompt_id=${prompt['_id']}) ex=${e}`);
+        }
+    }
+    if (!winnerFound && prompt['is_completed'] === '1') {
+        promptData['winner'] = 'Consensus not reached.'
+    }
+
+    let tableRowLength = 4;
+
+    if (discussionRounds) {
+        tableRowLength += discussionRounds - 1;
+    }
+
+    const discussionsHeader = !discussionRounds ?
+        `<th data-rtc-resizable="discussion">Discussion</th>` :
+        Array.from({
+                length: discussionRounds
+            }, (_, i) =>
+            `<th data-rtc-resizable="discussion">Discussion (phase ${i + 1})</th>`).join('');
+
+    return await buildHTMLFromTemplate("prompt_table", {
+        'prompt_text': promptData['prompt_text'],
+        'selected_winner': promptData['winner'],
+        'prompt_participants_data': submindsHTML,
+        'prompt_id': prompt['_id'],
+        'cid': prompt['cid'],
+        'discussions_header': discussionsHeader,
+        'message_time': prompt['created_on'],
+        'tr_length': tableRowLength
+    });
+}
+
+/**
+ * Gets user message HTML from received message data object
+ * @param message - Message Object received
+ * @param skin - conversation skin
+ * @return {Promise<string>} HTML by the provided message data
+ */
+async function messageHTMLFromData(message, skin = CONVERSATION_SKINS.BASE) {
+    if (skin === CONVERSATION_SKINS.PROMPTS && message['message_type'] === 'prompt') {
+        return buildPromptHTML(message);
+    } else {
+        const isMine = currentUser && message['user_nickname'] === currentUser['nickname'];
+        return buildUserMessageHTML({
+                'avatar': message['user_avatar'],
+                'nickname': message['user_nickname'],
+                'is_bot': message['user_is_bot'],
+                '_id': message['user_id']
+            },
+            message['cid'],
+            message['message_id'],
+            message['message_text'],
+            message['created_on'],
+            isMine,
+            message?.is_audio,
+            message?.is_announcement);
+    }
+}
+
+/**
+ * Builds HTML for received conversation data
+ * @param conversationData - JS Object containing conversation data of type:
+ * {
+ *     '_id': 'id of conversation',
+ *     'conversation_name': 'title of the conversation',
+ *     'chat_flow': [{
+ *         'user_nickname': 'nickname of sender',
+ *         'user_avatar': 'avatar of sender',
+ *         'message_id': 'id of the message',
+ *         'message_text': 'text of the message',
+ *         'created_on': 'creation time of the message'
+ *     }, ... (num of user messages returned)]
+ * }
+ * @param skin - conversation skin to build
+ * @return {string} conversation HTML based on provided data
+ */
+async function buildConversationHTML(conversationData = {}, skin = CONVERSATION_SKINS.BASE) {
+    const cid = conversationData['_id'];
+    const conversation_name = conversationData['conversation_name'];
+    let chatFlowHTML = "";
+    if (conversationData.hasOwnProperty('chat_flow')) {
+        for (const message of Array.from(conversationData['chat_flow'])) {
+            message['cid'] = cid;
+            chatFlowHTML += await messageHTMLFromData(message, skin);
+            // if (skin === CONVERSATION_SKINS.BASE) {
+            // }
+        }
+    } else {
+        chatFlowHTML += `<div class="blank_chat">No messages in this chat yet...</div>`;
+    }
+    const conversationNameShrunk = shrinkToFit(conversation_name, 6);
+    let nanoHeaderHTML = '';
+    if (configData.client === CLIENTS.NANO) {
+        nanoHeaderHTML = await buildHTMLFromTemplate('nano_header', {
+            'cid': cid
+        })
+    }
+    return await buildHTMLFromTemplate('conversation', {
+        'cid': cid,
+        'nano_header': nanoHeaderHTML,
+        'conversation_name': conversation_name,
+        'conversation_name_shrunk': conversationNameShrunk,
+        'chat_flow': chatFlowHTML
+    }, `skin=${skin}`);
+}
+
+/**
+ * Builds suggestion HTML
+ * @param cid - target conversation id
+ * @param name - target conversation name
+ * @return {Promise<string|void>} HTML with fetched data
+ */
+const buildSuggestionHTML = async (cid, name) => {
+    return await buildHTMLFromTemplate('suggestion', {
+        'cid': cid,
+        'conversation_name': name
+    })
+};
+/**
+ * Returns DOM container for message elements under specific conversation id
+ * @param cid: conversation id to consider
+ * @return {Element} DOM container for message elements of considered conversation
+ */
+const getMessageListContainer = (cid) => {
+    const cidElem = document.getElementById(cid);
+    if (cidElem) {
+        return cidElem.getElementsByClassName('card-body')[0].getElementsByClassName('chat-list')[0]
+    }
+}
+
+
+const getChatCardBody = (cid) => {
+    const cidElem = document.getElementById(cid);
+    if (cidElem) {
+        return cidElem.getElementsByClassName('card-body')[0];
+    }
+}
+
+const scrollChatToLastMessage = (cid) => {
+    const chatCardBody = getChatCardBody(cid);
+    if (chatCardBody) {
+        chatCardBody.scrollTo({
+            top: chatCardBody.scrollHeight,
+            behavior: "smooth"
+        })
+    }
+}
+
+/**
+ * Gets message node from the message container
+ * @param messageContainer: DOM Message Container element to consider
+ * @param validateType: type of message to validate
+ * @return {HTMLElement} ID of the message
+ */
+const getMessageNode = (messageContainer, validateType = null) => {
+    let detectedType;
+    let node
+    if (messageContainer.getElementsByTagName('table').length > 0) {
+        detectedType = 'prompt';
+        node = messageContainer.getElementsByTagName('table')[0];
+    } else {
+        detectedType = 'plain'
+        node = messageContainer.getElementsByClassName('chat-body')[0].getElementsByClassName('chat-message')[0];
+    }
+    if (validateType && validateType !== detectedType) {
+        return null;
+    } else {
+        return node;
+    }
+}
+
+/**
+ * Adds new message to desired conversation id
+ * @param cid: desired conversation id
+ * @param userID: message sender id
+ * @param messageID: id of sent message (gets generated if null)
+ * @param messageText: text of the message
+ * @param timeCreated: timestamp for message creation
+ * @param repliedMessageID: id of the replied message (optional)
+ * @param attachments: array of attachments to add (optional)
+ * @param isAudio: is audio message (defaults to '0')
+ * @param isAnnouncement: is message an announcement (defaults to "0")
+ * @returns {Promise<null|number>}: promise resolving id of added message, -1 if failed to resolve message id creation
+ */
+async function addNewMessage(cid, userID = null, messageID = null, messageText, timeCreated, repliedMessageID = null, attachments = [], isAudio = '0', isAnnouncement = '0') {
+    const messageList = getMessageListContainer(cid);
+    if (messageList) {
+        let userData;
+        const isMine = userID === currentUser['_id'];
+        if (isMine) {
+            userData = currentUser;
+        } else {
+            userData = await getUserData(userID);
+        }
+        if (!messageID) {
+            messageID = generateUUID();
+        }
+        let messageHTML = await buildUserMessageHTML(userData, cid, messageID, messageText, timeCreated, isMine, isAudio, isAnnouncement);
+        const blankChat = messageList.getElementsByClassName('blank_chat');
+        if (blankChat.length > 0) {
+            messageList.removeChild(blankChat[0]);
+        }
+        messageList.insertAdjacentHTML('beforeend', messageHTML);
+        scrollChatToLastMessage(cid);
+        resolveMessageAttachments(cid, messageID, attachments);
+        resolveUserReply(messageID, repliedMessageID);
+        addProfileDisplay(userID, cid, messageID, 'plain');
+        return messageID;
+    }
+}
+
+const PROMPT_STATES = {
+    1: 'RESP',
+    2: 'DISC',
+    3: 'VOTE'
+}
+
+/**
+ * Returns HTML Element representing user row in prompt
+ * @param promptID: target prompt id
+ * @param userID: target user id
+ * @return {HTMLElement}: HTML Element containing user prompt data
+ */
+const getUserPromptTR = (promptID, userID) => {
+    return document.getElementById(`${promptID}_${userID}_prompt_row`);
+}
+
+/**
+ * Adds prompt message of specified user id
+ * @param cid - target conversation id
+ * @param userID - target submind user id
+ * @param messageText - message of submind
+ * @param promptId - target prompt id
+ * @param promptState - prompt state to consider
+ * @param promptContext - associated prompt's context
+ */
+async function addPromptMessage(cid, userID, messageText, promptId, promptState, promptContext) {
+    const tableBody = document.getElementById(`${promptId}_tbody`);
+    if (await getCurrentSkin(cid) === CONVERSATION_SKINS.PROMPTS) {
+        try {
+            const userData = await getUserData(userID);
+            promptState = PROMPT_STATES[promptState].toLowerCase();
+            if (!getUserPromptTR(promptId, userID)) {
+                const newUserRow = await buildSubmindHTML(promptId, userID, userData, '', '', '', promptContext?.discussion_rounds);
+                tableBody.insertAdjacentHTML('beforeend', newUserRow);
+            }
+            try {
+                let messageElemId = `${promptId}_${userData['nickname']}_${promptState}`
+                if (promptState === "disc" && promptContext?.discussion_rounds > 1 && promptContext?.discussion_counter) {
+                    messageElemId += `_${promptContext?.discussion_counter}`
+                }
+                const messageElem = document.getElementById(messageElemId);
+                messageElem.innerText = messageText;
+            } catch (e) {
+                console.warn(`Failed to add prompt message (${cid},${userID}, ${messageText}, ${promptId}, ${promptState}) - ${e}`)
+            }
+        } catch (e) {
+            console.info(`Skipping message of invalid prompt state - ${promptState}`);
+        }
+    }
+}
+
+
+/**
+ * Returns first message id based on given element
+ * @param firstChild: DOM element of first message child
+ */
+function getFirstMessageFromCID(firstChild) {
+    if (firstChild.classList.contains('prompt-item')) {
+        const promptTable = firstChild.getElementsByTagName('table')[0];
+        const promptID = promptTable.id;
+        const promptTBody = promptTable.getElementsByTagName('tbody')[0];
+        let currentRecentMessage = null;
+        let currentOldestTS = null;
+        Array.from(promptTBody.getElementsByTagName('tr')).forEach(tr => {
+            const submindID = tr.getAttribute('data-submind-id');
+            ['resp', 'opinion', 'vote'].forEach(phase => {
+                const phaseElem = document.getElementById(`${promptID}_${submindID}_${phase}`);
+                if (phaseElem) {
+                    let createdOn = phaseElem.getAttribute(`data-created-on`);
+                    const messageID = phaseElem.getAttribute(`data-message-id`)
+                    if (createdOn && messageID) {
+                        createdOn = parseInt(createdOn);
+                        if (!currentOldestTS || createdOn < currentOldestTS) {
+                            currentOldestTS = createdOn;
+                            currentRecentMessage = messageID;
+                        }
+                    }
+                }
+            });
+        });
+        return currentRecentMessage;
+    } else {
+        return getMessageNode(firstChild, 'plain')?.id;
+    }
+}
+
+/**
+ * Gets list of the next n-older messages
+ * @param cid: target conversation id
+ * @param skin: target conversation skin
+ */
+async function addOldMessages(cid, skin = CONVERSATION_SKINS.BASE) {
+    const messageContainer = getMessageListContainer(cid);
+    if (messageContainer.children.length > 0) {
+        for (let i = 0; i < messageContainer.children.length; i++) {
+            const firstMessageItem = messageContainer.children[i];
+            const oldestMessageTS = await DBGateway.getInstance(DB_TABLES.CHAT_MESSAGES_PAGINATION).getItem(cid).then(res => res?.oldest_created_on || null);
+            if (oldestMessageTS) {
+                const numMessages = await getCurrentSkin(cid) === CONVERSATION_SKINS.PROMPTS ? 50 : 10;
+                await getConversationDataByInput(cid, skin, oldestMessageTS, numMessages).then(async conversationData => {
+                    if (messageContainer) {
+                        const userMessageList = getUserMessages(conversationData, null);
+                        userMessageList.sort((a, b) => {
+                            a['created_on'] - b['created_on'];
+                        }).reverse();
+                        for (const message of userMessageList) {
+                            message['cid'] = cid;
+                            if (!isDisplayed(getMessageID(message))) {
+                                const messageHTML = await messageHTMLFromData(message, skin);
+                                messageContainer.insertAdjacentHTML('afterbegin', messageHTML);
+                            } else {
+                                console.debug(`!!message_id=${message["message_id"]} is already displayed`)
+                            }
+                        }
+                        await initMessages(conversationData, skin);
+                    }
+                }).then(_ => {
+                    firstMessageItem.scrollIntoView({
+                        behavior: "smooth"
+                    });
+                });
+                break;
+            } else {
+                console.warn(`NONE first message id detected for cid=${cid}`)
+            }
+        }
+    }
+}
+
+
+/**
+ * Returns message id based on message type
+ * @param message: message object to check
+ * @returns {null|*} message id extracted if valid message type detected
+ */
+const getMessageID = (message) => {
+    switch (message['message_type']) {
+        case 'plain':
+            return message['message_id'];
+        case 'prompt':
+            return message['_id'];
+        default:
+            console.warn(`Invalid message structure received - ${message}`);
+            return null;
+    }
+}
+
+/**
+ * Array of user messages in given conversation
+ * @param conversationData: Conversation Data object to fetch
+ * @param forceType: to force particular type of messages among the chat flow
+ */
+const getUserMessages = (conversationData, forceType = 'plain') => {
+    try {
+        let messages = Array.from(conversationData['chat_flow']);
+        if (forceType) {
+            messages = messages.filter(message => message['message_type'] === forceType);
+        }
+        return messages;
+    } catch {
+        return [];
+    }
+}
+
+/**
+ * Initializes listener for loading old message on scrolling conversation box
+ * @param conversationData: Conversation Data object to fetch
+ * @param skin: conversation skin to apply
+ */
+function initLoadOldMessages(conversationData, skin) {
+    const cid = conversationData['_id'];
+    const messageList = getMessageListContainer(cid);
+    const messageListParent = messageList.parentElement;
+    setDefault(setDefault(conversationState, cid, {}), 'lastScrollY', 0);
+    messageListParent.addEventListener("scroll", async (e) => {
+        const oldScrollPosition = conversationState[cid]['scrollY'];
+        conversationState[cid]['scrollY'] = e.target.scrollTop;
+        if (oldScrollPosition > conversationState[cid]['scrollY'] &&
+            !conversationState[cid]['all_messages_displayed'] &&
+            conversationState[cid]['scrollY'] === 0) {
+            setChatState(cid, 'updating', 'Loading messages...')
+            await addOldMessages(cid, skin);
+            for (const inputType of ['incoming', 'outcoming']) {
+                await requestTranslation(cid, null, null, inputType);
+            }
+            setTimeout(() => {
+                setChatState(cid, 'active');
+            }, 700);
+        }
+    });
+}
+
+/**
+ * Attaches event listener to display element's target user profile
+ * @param userID target user id
+ * @param elem target DOM element
+ */
+function attachTargetProfileDisplay(userID, elem) {
+    if (elem) {
+        elem.addEventListener('click', async (_) => {
+            if (userID) await showProfileModal(userID)
+        });
+    }
+}
+
+/**
+ * Adds callback for showing profile information on profile avatar click
+ * @param userID target user id
+ * @param cid target conversation id
+ * @param messageId target message id
+ * @param messageType type of message to display
+ */
+function addProfileDisplay(userID, cid, messageId, messageType = 'plain') {
+    if (messageType === 'plain') {
+        attachTargetProfileDisplay(userID, document.getElementById(`${messageId}_avatar`))
+    } else if (messageType === 'prompt') {
+        const promptTBody = document.getElementById(`${messageId}_tbody`);
+        const rows = promptTBody.getElementsByTagName('tr');
+        Array.from(rows).forEach(row => {
+            attachTargetProfileDisplay(userID, Array.from(row.getElementsByTagName('td'))[0].getElementsByClassName('chat-img')[0]);
+        })
+    }
+}
+
+
+/**
+ * Inits addProfileDisplay() on each message of provided conversation
+ * @param conversationData - target conversation data
+ */
+function initProfileDisplay(conversationData) {
+    getUserMessages(conversationData, null).forEach(message => {
+        addProfileDisplay(message['user_id'], conversationData['_id'], getMessageID(message), message['message_type']);
+    });
+}
+
+
+/**
+ * Inits pagination based on the oldest message creation timestamp
+ * @param conversationData - target conversation data
+ */
+async function initPagination(conversationData) {
+    const userMessages = getUserMessages(conversationData, null);
+    if (userMessages.length > 0) {
+        const oldestMessage = Math.min(...userMessages.map(msg => parseInt(msg.created_on)));
+        await DBGateway
+            .getInstance(DB_TABLES.CHAT_MESSAGES_PAGINATION)
+            .putItem({
+                cid: conversationData['_id'],
+                oldest_created_on: oldestMessage
+            })
+    }
+}
+
+
+/**
+ * Initializes messages based on provided conversation aata
+ * @param conversationData - JS Object containing conversation data of type:
+ * {
+ *     '_id': 'id of conversation',
+ *     'conversation_name': 'title of the conversation',
+ *     'chat_flow': [{
+ *         'user_nickname': 'nickname of sender',
+ *         'user_avatar': 'avatar of sender',
+ *         'message_id': 'id of the message',
+ *         'message_text': 'text of the message',
+ *         'is_audio': true if message is an audio message
+ *         'is_announcement': true if message is considered to be an announcement
+ *         'created_on': 'creation time of the message'
+ *     }, ... (num of user messages returned)]
+ * }
+ * @param skin - target conversation skin to consider
+ */
+async function initMessages(conversationData, skin) {
+    initProfileDisplay(conversationData);
+    attachReplies(conversationData);
+    addAttachments(conversationData);
+    addCommunicationChannelTransformCallback(conversationData);
+    initLoadOldMessages(conversationData, skin);
+    await initPagination(conversationData);
+}
+
+/**
+ * Emits user message to Socket IO Server
+ * @param textInputElem: DOM Element with input text (audio object if isAudio=true)
+ * @param cid: Conversation ID
+ * @param repliedMessageID: ID of replied message
+ * @param attachments: list of attachments file names
+ * @param isAudio: is audio message being emitted (defaults to '0')
+ * @param isAnnouncement: is message an announcement (defaults to '0')
+ */
+function emitUserMessage(textInputElem, cid, repliedMessageID = null, attachments = [], isAudio = '0', isAnnouncement = '0') {
+    if (isAudio === '1' || textInputElem && textInputElem.value) {
+        const timeCreated = getCurrentTimestamp();
+        let messageText;
+        if (isAudio === '1') {
+            messageText = textInputElem;
+        } else {
+            messageText = textInputElem.value;
+        }
+        addNewMessage(cid, currentUser['_id'], null, messageText, timeCreated, repliedMessageID, attachments, isAudio, isAnnouncement).then(async messageID => {
+            const preferredShoutLang = getPreferredLanguage(cid, 'outcoming');
+            socket.emitAuthorized('user_message', {
+                'cid': cid,
+                'userID': currentUser['_id'],
+                'messageText': messageText,
+                'messageID': messageID,
+                'lang': preferredShoutLang,
+                'attachments': attachments,
+                'isAudio': isAudio,
+                'isAnnouncement': isAnnouncement,
+                'timeCreated': timeCreated
+            });
+            if (preferredShoutLang !== 'en') {
+                await requestTranslation(cid, messageID, 'en', 'outcoming', true);
+            }
+            addMessageTransformCallback(cid, messageID, isAudio);
+        });
+        if (isAudio === '0') {
+            textInputElem.value = "";
+        }
+    }
+}
+/**
+ * Resolves user reply on message
+ * @param replyID: id of user reply
+ * @param repliedID id of replied message
+ */
+function resolveUserReply(replyID, repliedID) {
+    if (repliedID) {
+        const repliedElem = document.getElementById(repliedID);
+        if (repliedElem) {
+            let repliedText = repliedElem.getElementsByClassName('message-text')[0].innerText;
+            repliedText = shrinkToFit(repliedText, 15);
+            const replyHTML = `<i class="reply-text" data-replied-id="${repliedID}">
+${repliedText}
+</i>`;
+            const replyPlaceholder = document.getElementById(replyID).getElementsByClassName('reply-placeholder')[0];
+            replyPlaceholder.insertAdjacentHTML('afterbegin', replyHTML);
+            attachReplyHighlighting(replyPlaceholder.getElementsByClassName('reply-text')[0]);
+        }
+    }
+}
+
+/**
+ * Attaches reply highlighting for reply item
+ * @param replyItem reply item element
+ */
+function attachReplyHighlighting(replyItem) {
+    replyItem.addEventListener('click', (e) => {
+        const repliedItem = document.getElementById(replyItem.getAttribute('data-replied-id'));
+        const backgroundParent = repliedItem.parentElement.parentElement;
+        repliedItem.scrollIntoView();
+        backgroundParent.classList.remove('message-selected');
+        setTimeout(() => backgroundParent.classList.add('message-selected'), 500);
+    });
+}
+
+/**
+ * Attaches message replies to initialized conversation
+ * @param conversationData: conversation data object
+ */
+function attachReplies(conversationData) {
+    if (conversationData.hasOwnProperty('chat_flow')) {
+        getUserMessages(conversationData).forEach(message => {
+            resolveUserReply(message['message_id'], message?.replied_message);
+        });
+        Array.from(document.getElementsByClassName('reply-text')).forEach(replyItem => {
+            attachReplyHighlighting(replyItem);
+        });
+    }
+}
+/**
  * Gets time object from provided UNIX timestamp
  * @param timestampCreated: UNIX timestamp (in seconds)
  * @returns {string} string time (hours:minutes)
@@ -44,261 +1019,299 @@ function strFmtDate(year, month, day, hours, minutes, seconds) {
     }
     return finalDate;
 }
-/**
- * Returns current UNIX timestamp in seconds
- * @return {number}: current unix timestamp
- */
-const getCurrentTimestamp = () => {
-    return Math.floor(Date.now() / 1000);
-};
+let socket;
 
-// Client's timer
-// TODO consider refactoring to "timer per component" if needed
-let __timer = 0;
+const sioTriggeringEvents = ['configLoaded', 'configNanoLoaded'];
 
-
-/**
- * Sets timer to current timestamp
- */
-const startTimer = () => {
-    __timer = Date.now();
-};
-
-/**
- * Resets times and returns time elapsed since invocation of startTimer()
- * @return {number} Number of seconds elapsed
- */
-const stopTimer = () => {
-    const timeDue = Date.now() - __timer;
-    __timer = 0;
-    return timeDue;
-};
-/**
- * Enum of possible Alert Behaviours:
- * - DEFAULT: static alert message appeared with no expiration time
- * - AUTO_EXPIRE: alert message will be expired after some amount of time (defaults to 3 seconds)
- */
-const alertBehaviors = {
-    STATIC: 'static',
-    AUTO_EXPIRE: 'auto_expire'
-}
-
-/**
- * Adds Bootstrap alert HTML to specified element's id
- * @param parentElem: DOM Element in which to display alert
- * @param text: Text of alert (defaults 'Error Occurred')
- * @param alertType: Type of alert from bootstrap-supported alert types (defaults to 'danger')
- * @param alertID: Id of alert to display (defaults to 'alert')
- * @param alertBehaviorProperties: optional properties associated with alert message behavior
- */
-function displayAlert(parentElem, text = 'Error Occurred', alertType = 'danger', alertID = 'alert',
-    alertBehaviorProperties = null) {
-    if (!parentElem) {
-        console.warn('Alert is not displayed as parentElem is not defined');
-        return
-    }
-    if (typeof parentElem === 'string') {
-        parentElem = document.getElementById(parentElem);
-    }
-    if (!['info', 'success', 'warning', 'danger', 'primary', 'secondary', 'dark'].includes(alertType)) {
-        alertType = 'danger'; //default
-    }
-    let alert = document.getElementById(alertID);
-    if (alert) {
-        alert.remove();
-    }
-
-    if (!alertBehaviorProperties) {
-        alertBehaviorProperties = {
-            'type': alertBehaviors.AUTO_EXPIRE,
-        }
-    }
-
-    if (text) {
-        parentElem.insertAdjacentHTML('afterbegin',
-            `<div class="alert alert-${alertType} alert-dismissible" role="alert" id="${alertID}">
-<b>${text}</b>
-<button type="button" class="close" data-dismiss="alert" aria-label="Close">
-<span aria-hidden="true">&times;</span>
-</button>
-</div>`);
-        if (alertBehaviorProperties) {
-            setDefault(alertBehaviorProperties, 'type', alertBehaviors.STATIC);
-            if (alertBehaviorProperties['type'] === alertBehaviors.AUTO_EXPIRE) {
-                const expirationTime = setDefault(alertBehaviorProperties, 'expiration', 3000);
-                const slideLength = setDefault(alertBehaviorProperties, 'fadeLength', 500);
-                setTimeout(function() {
-                    $(`#${alertID}`).slideUp(slideLength, () => {
-                        $(this).remove();
-                    });
-                }, expirationTime);
-            }
-        }
-    }
-}
-
-/**
- * Generates UUID hex
- * @param length: length of UUID (defaults to 8)
- * @param strPattern: pattern to follow for UUID (optional)
- * @returns {string} Generated UUID hex
- */
-function generateUUID(length = 8, strPattern = '00-0-4-1-000') {
-    const a = crypto.getRandomValues(new Uint16Array(length));
-    let i = 0;
-    return strPattern.replace(/[^-]/g,
-        s => (a[i++] + s * 0x10000 >> s).toString(16).padStart(4, '0')
-    );
-}
-
-/**
- * Shrinks text to fit into desired length
- * @param text: Text to shrink
- * @param maxLength: max length of text to save
- * @param suffix: suffix to apply after shrunk string
- * @returns {string} Shrunk text, fitting into "maxLength"
- */
-function shrinkToFit(text, maxLength, suffix = '...') {
-    if (text.length > maxLength) {
-        text = text.substring(0, maxLength) + suffix;
-    }
-    return text;
-}
-
-
-/**
- * Converts file to base64
- * @param file: desired file
- * @return {Promise}
- */
-const toBase64 = file => new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = error => reject(error);
+sioTriggeringEvents.forEach(event => {
+    document.addEventListener(event, _ => {
+        socket = initSIO();
+    });
 });
 
 /**
- * Extracts filename from path
- * @param path: path to extract from
+ * Inits socket io client listener by attaching relevant listeners on message channels
+ * @return {Socket} Socket IO client instance
  */
-function getFilenameFromPath(path) {
-    return path.replace(/.*[\/\\]/, '');
-}
+function initSIO() {
 
-/**
- * Fetches URL with no-cors mode
- * @param url: URL to fetch
- * @param properties: request properties
- * @return {Promise<Response>}: Promise of fetching
- */
-function fetchNoCors(url, properties = {}) {
-    properties['mode'] = 'no-cors';
-    return fetch(url, properties)
-}
+    const sioServerURL = configData['CHAT_SERVER_URL_BASE'];
 
-/**
- * Checks if element is in current viewport
- * @param element: DOM element to check
- * @return {boolean} True if element in current viewport False otherwise
- */
-function isInViewport(element) {
-    const rect = element.getBoundingClientRect();
-    return (
-        rect.top >= 0 &&
-        rect.left >= 0 &&
-        rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
-        rect.right <= (window.innerWidth || document.documentElement.clientWidth)
-    );
-}
-
-/**
- * Sets default value to the object under the specified key
- * @param obj: object to consider
- * @param key: object key to set
- * @param val: default value to set
- */
-function setDefault(obj, key, val) {
-    if (obj) {
-        obj[key] ??= val;
-    }
-    return obj[key];
-}
-
-/**
- * Aggregates provided array by the key of its elements
- * @param arr: array to aggregate
- * @param key: aggregation key
- */
-function aggregateByKey(arr, key) {
-    const result = {}
-    arr.forEach(item => {
-        try {
-            const keyValue = item[key];
-            delete item[key];
-            if (keyValue && !result[keyValue]) {
-                result[keyValue] = item;
+    const socket = io(
+        sioServerURL, {
+            extraHeaders: {
+                "session": getSessionToken()
             }
-        } catch (e) {
-            console.warn(`item=${item} has no key ${key}`)
+        }
+    );
+
+    socket.__proto__.emitAuthorized = (event, data) => {
+        socket.io.opts.extraHeaders.session = getSessionToken();
+        return socket.emit(event, data);
+    }
+
+    socket.on('auth_expired', () => {
+        if (currentUser && Object.keys(currentUser).length > 0) {
+            console.log('Authorization Token expired, refreshing...')
+            location.reload();
         }
     });
-    return result;
+
+    socket.on('connect', () => {
+        console.info(`Socket IO Connected to Server: ${sioServerURL}`)
+    });
+
+    socket.on("connect_error", (err) => {
+        console.log(`connect_error due to ${err.message}`);
+    });
+
+    socket.on('new_prompt_created', async (prompt) => {
+        const messageContainer = getMessageListContainer(prompt['cid']);
+        const promptID = prompt['_id'];
+        if (await getCurrentSkin(prompt['cid']) === CONVERSATION_SKINS.PROMPTS) {
+            if (!document.getElementById(promptID)) {
+                const messageHTML = await buildPromptHTML(prompt);
+                messageContainer.insertAdjacentHTML('beforeend', messageHTML);
+            }
+        }
+    });
+
+    socket.on('new_message', async (data) => {
+        if (await getCurrentSkin(data.cid) === CONVERSATION_SKINS.PROMPTS && data?.prompt_id) {
+            console.debug('Skipping prompt-related message')
+            return
+        }
+        // console.debug('received new_message -> ', data)
+        const preferredLang = getPreferredLanguage(data['cid']);
+        if (data?.lang !== preferredLang) {
+            requestTranslation(data['cid'], data['messageID']).catch(err => console.error(`Failed to request translation of cid=${data['cid']} messageID=${data['messageID']}: ${err}`));
+        }
+        addNewMessage(data['cid'], data['userID'], data['messageID'], data['messageText'], data['timeCreated'], data['repliedMessage'], data['attachments'], data?.isAudio, data?.isAnnouncement)
+            .then(_ => addMessageTransformCallback(data['cid'], data['messageID'], data?.isAudio))
+            .catch(err => console.error('Error occurred while adding new message: ', err));
+    });
+
+    socket.on('new_prompt_message', async (message) => {
+        await addPromptMessage(message['cid'], message['userID'], message['messageText'], message['promptID'], message['promptState'], message?.context)
+            .catch(err => console.error('Error occurred while adding new prompt data: ', err));
+    });
+
+    socket.on('set_prompt_completed', async (data) => {
+        const promptID = data['prompt_id'];
+        const promptElem = document.getElementById(promptID);
+        console.info(`setting prompt_id=${promptID} as completed`);
+        if (promptElem) {
+            const promptWinner = document.getElementById(`${promptID}_winner`);
+            let winnerResponse;
+            if (data?.winner) {
+                const winnerRespHTML = document.getElementById(`${promptID}_${data.winner}_resp`);
+                if (winnerRespHTML) {
+                    winnerResponse = winnerRespHTML.innerText;
+                }
+            }
+            if (!winnerResponse) {
+                winnerResponse = "Consensus not reached."
+            }
+            promptWinner.innerHTML = await buildPromptWinnerHTML(data['winner'], winnerResponse);
+        } else {
+            console.warn(`Failed to get HTML element from prompt_id=${promptID}`);
+        }
+    });
+
+    socket.on('translation_response', async (data) => {
+        console.debug('translation_response: ', data)
+        await applyTranslations(data);
+    });
+
+    socket.on('subminds_state', async (data) => {
+        console.debug('subminds_state: ', data)
+        parseSubmindsState(data);
+    });
+
+    socket.on('incoming_tts', (data) => {
+        console.debug('received incoming stt audio');
+        playTTS(data['cid'], data['lang'], data['audio_data']);
+    });
+
+    socket.on('incoming_stt', (data) => {
+        console.debug('received incoming stt response');
+        showSTT(data['message_id'], data['lang'], data['message_text']);
+    });
+
+    // socket.on('updated_shouts', async (data) =>{
+    //     const inputType = data['input_type'];
+    //     for (const [cid, shouts] of Object.entries(data['translations'])){
+    //        if (await getCurrentSkin(cid) === CONVERSATION_SKINS.BASE){
+    //            await requestTranslation(cid, shouts, null, inputType);
+    //        }
+    //    }
+    // });
+
+    return socket;
+}
+/**
+ * Renders suggestions HTML
+ */
+async function renderSuggestions() {
+    const displayedCids = Object.values(await retrieveItemsLayout(true)).join(',');
+    await fetchServer(`chat_api/get_popular_cids?limit=5&search_str=${conversationSearchInput.value}&exclude_items=${displayedCids}`).then(async response => {
+        const items = await response.json();
+        importConversationModalSuggestions.innerHTML = "";
+        for (const item of Array.from(items)) {
+            importConversationModalSuggestions.insertAdjacentHTML('afterbegin', await buildSuggestionHTML(item['_id'], item['conversation_name']));
+        }
+        Array.from(importConversationModalSuggestions.getElementsByClassName('suggestion-item')).forEach(item => {
+            const cid = item.getAttribute('data-cid');
+            if (cid) {
+                item.addEventListener('click', async (e) => {
+                    await displayConversation(cid);
+                    conversationSearchInput.value = "";
+                    importConversationModal.modal('hide');
+                    // importConversationModalSuggestions.innerHTML = "";
+                });
+                item.addEventListener('mouseover', (event) => {
+                    item.classList.add('selected')
+                });
+                item.addEventListener('mouseleave', (event) => {
+                    item.classList.remove('selected')
+                });
+            }
+        });
+        importConversationModalSuggestions.style.setProperty('display', 'inherit', 'important');
+    });
+}
+/**
+ * Collection of supported clients, current client is matched based on client configuration
+ * @type {{NANO: string, MAIN: string}}
+ */
+const CLIENTS = {
+    MAIN: 'main',
+    NANO: 'nano',
+    UNDEFINED: undefined
 }
 
 /**
- * Deletes provided element from DOM
- * @param elem: DOM Object to delete
+ * JS Object containing frontend configuration data
+ * @type {{staticFolder: string, currentURLBase: string, currentURLFull: (string|string|string|SVGAnimatedString|*), client: string}}
  */
-function deleteElement(elem) {
-    if (elem && elem?.parentElement) return elem.parentElement.removeChild(elem);
+
+let configData = {
+    'staticFolder': "../../static",
+    'currentURLBase': extractURLBase(),
+    'currentURLFull': window.location.href,
+    'client': typeof metaConfig !== 'undefined' ? metaConfig?.client : CLIENTS.UNDEFINED,
+    "MAX_CONVERSATIONS_PER_PAGE": 4,
+};
+
+/**
+ * Default key for storing data in local storage
+ * @type {string}
+ */
+const conversationAlignmentKey = 'conversationAlignment';
+
+/**
+ * Custom Event fired on configs ended up loading
+ * @type {CustomEvent<string>}
+ */
+const configFullLoadedEvent = new CustomEvent("configLoaded", {
+    "detail": "Event that is fired when configs are loaded"
+});
+
+/**
+ * Convenience method for getting URL base for current page
+ * @returns {string} constructed URL base
+ */
+function extractURLBase() {
+    return window.location.protocol + '//' + window.location.hostname + (window.location.port ? ':' + window.location.port : '');
 }
 
 /**
- * Generic checker for value emptiness
- * @param value - provided data to check
+ * Extracts json data from provided URL path
+ * @param urlPath - file path string
+ * @param onError - callback on extraction failure
+ * @returns {Promise<* | {}>} promise that resolves data obtained from file path
  */
-function isEmpty(value) {
-    return (
-        // null or undefined
-        value == null ||
-        // has length and it's zero
-        (value.hasOwnProperty('length') && value.length === 0) ||
-        // is an Object and has no keys
-        (value.constructor === Object && Object.keys(value).length === 0)
-    );
+async function extractJsonData(urlPath = "",
+    onError = (e) => console.error(`failed to extractJsonData - ${e}`)) {
+    return fetch(urlPath).then(response => {
+        if (response.ok) {
+            return response.json();
+        }
+        return {};
+    }).catch(onError);
 }
 
-const MIMES = [
-    ["xml", "application/xml"],
-    ["bin", "application/vnd.ms-excel.sheet.binary.macroEnabled.main"],
-    ["vml", "application/vnd.openxmlformats-officedocument.vmlDrawing"],
-    ["data", "application/vnd.openxmlformats-officedocument.model+data"],
-    ["bmp", "image/bmp"],
-    ["png", "image/png"],
-    ["gif", "image/gif"],
-    ["emf", "image/x-emf"],
-    ["wmf", "image/x-wmf"],
-    ["jpg", "image/jpeg"],
-    ["jpeg", "image/jpeg"],
-    ["tif", "image/tiff"],
-    ["tiff", "image/tiff"],
-    ["jfif", "image/jfif"],
-    ["pdf", "application/pdf"],
-    ["rels", "application/vnd.openxmlformats-package.relationships+xml"]
-];
 
-const IMAGE_EXTENSIONS = MIMES.filter(item => item[1].startsWith('image/')).map(item => item[0]);
-/**
- * Displays modal bounded to the provided conversation id
- * @param modalElem: modal to display
- * @param cid: conversation id to consider
- */
-function displayModalInCID(modalElem, cid) {
-    modalElem.modal('hide');
-    $('.modal-backdrop').appendTo(`#${cid}`);
-    modalElem.modal('show');
+document.addEventListener('DOMContentLoaded', async (e) => {
+    if (configData['client'] === CLIENTS.MAIN) {
+        configData = Object.assign(configData, await extractJsonData(`${configData['currentURLBase']}/base/runtime_config`), (e) => location.reload());
+        document.dispatchEvent(configFullLoadedEvent);
+    }
+});
+const REQUEST_METHODS = {
+    GET: 'GET',
+    PUT: 'PUT',
+    DELETE: 'DELETE',
+    POST: 'POST'
 }
+
+const controllers = new Set();
+
+
+const getSessionToken = () => {
+    return localStorage.getItem('session') || '';
+}
+
+const setSessionToken = (val) => {
+    const currentValue = getSessionToken();
+    localStorage.setItem('session', val);
+    if (currentValue && currentValue !== val) {
+        location.reload();
+    }
+}
+
+const fetchServer = async (urlSuffix, method = REQUEST_METHODS.GET, body = null, json = false) => {
+    const controller = new AbortController();
+    controllers.add(controller);
+    const signal = controller.signal;
+
+    const options = {
+        method: method,
+        headers: new Headers({
+            'Authorization': getSessionToken()
+        }),
+        signal,
+    }
+    if (body) {
+        options['body'] = body;
+    }
+    // TODO: there is an issue validating FormData on backend, so JSON property should eventually become true
+    if (json) {
+        options['headers'].append('Content-Type', 'application/json');
+        if (options['body']) {
+            options['body'] &&= JSON.stringify(options['body'])
+        }
+    }
+    return fetch(`${configData["CHAT_SERVER_URL_BASE"]}/${urlSuffix}`, options).then(async response => {
+        if (response.status === 401) {
+            const responseJson = await response.json();
+            if (responseJson['msg'] === 'Session token is invalid or expired') {
+                localStorage.removeItem('session');
+                location.reload();
+            }
+        }
+        return response;
+    }).finally(() => {
+        controllers.delete(controller);
+    });
+}
+
+
+document.addEventListener('beforeunload', () => {
+    for (const controller of controllers) {
+        controller.abort();
+    }
+});
 /**
  * Generic function to play base64 audio file (currently only .wav format is supported)
  * @param audio_data: base64 encoded audio data
@@ -873,7 +1886,7 @@ async function buildConversation(conversationData, skin, remember = true, conver
  * @param maxResults - max number of messages to fetch
  * @returns {Promise<{}>} promise resolving conversation data returned
  */
-async function getConversationDataByInput(input, skin, oldestMessageTS = null, maxResults = 10) {
+async function getConversationDataByInput(input, skin, oldestMessageTS = null, maxResults = 30) {
     let conversationData = {};
     if (input) {
         let query_url = `chat_api/search/${input.toString()}?limit_chat_history=${maxResults}&skin=${skin}`;
@@ -1193,7 +2206,7 @@ async function displayConversation(searchStr, skin = CONVERSATION_SKINS.PROMPTS,
         alert(`Up to ${configData.MAX_CONVERSATIONS_PER_PAGE} allowed per page`)
     } else if (searchStr !== "") {
         const alertParent = document.getElementById(alertParentID || conversationParentID);
-        await getConversationDataByInput(searchStr, skin, null, 10).then(async conversationData => {
+        await getConversationDataByInput(searchStr, skin, null).then(async conversationData => {
             let responseOk = false;
             if (!conversationData || Object.keys(conversationData).length === 0) {
                 displayAlert(
@@ -1323,1402 +2336,380 @@ document.addEventListener('DOMContentLoaded', (_) => {
         });
     }
 });
-/**
- * Returns DOM container for message elements under specific conversation id
- * @param cid: conversation id to consider
- * @return {Element} DOM container for message elements of considered conversation
- */
-const getMessageListContainer = (cid) => {
-    const cidElem = document.getElementById(cid);
-    if (cidElem) {
-        return cidElem.getElementsByClassName('card-body')[0].getElementsByClassName('chat-list')[0]
+let submindsState;
+
+function renderActiveSubminds(cid) {
+    if (!submindsState) {
+        console.log(`Subminds for CID ${cid} not yet loaded.`);
+        return;
     }
-}
-
-
-const getChatCardBody = (cid) => {
-    const cidElem = document.getElementById(cid);
-    if (cidElem) {
-        return cidElem.getElementsByClassName('card-body')[0];
+    const loadingSpinner = document.getElementById(`${cid}-subminds-state-loading`);
+    if (loadingSpinner) {
+        loadingSpinner.classList.remove('d-flex');
+        loadingSpinner.style.display = 'none';
     }
-}
 
-const scrollChatToLastMessage = (cid) => {
-    const chatCardBody = getChatCardBody(cid);
-    if (chatCardBody) {
-        chatCardBody.scrollTo({
-            top: chatCardBody.scrollHeight,
-            behavior: "smooth"
-        })
-    }
-}
-
-/**
- * Gets message node from the message container
- * @param messageContainer: DOM Message Container element to consider
- * @param validateType: type of message to validate
- * @return {HTMLElement} ID of the message
- */
-const getMessageNode = (messageContainer, validateType = null) => {
-    let detectedType;
-    let node
-    if (messageContainer.getElementsByTagName('table').length > 0) {
-        detectedType = 'prompt';
-        node = messageContainer.getElementsByTagName('table')[0];
-    } else {
-        detectedType = 'plain'
-        node = messageContainer.getElementsByClassName('chat-body')[0].getElementsByClassName('chat-message')[0];
-    }
-    if (validateType && validateType !== detectedType) {
-        return null;
-    } else {
-        return node;
-    }
-}
-
-/**
- * Adds new message to desired conversation id
- * @param cid: desired conversation id
- * @param userID: message sender id
- * @param messageID: id of sent message (gets generated if null)
- * @param messageText: text of the message
- * @param timeCreated: timestamp for message creation
- * @param repliedMessageID: id of the replied message (optional)
- * @param attachments: array of attachments to add (optional)
- * @param isAudio: is audio message (defaults to '0')
- * @param isAnnouncement: is message an announcement (defaults to "0")
- * @returns {Promise<null|number>}: promise resolving id of added message, -1 if failed to resolve message id creation
- */
-async function addNewMessage(cid, userID = null, messageID = null, messageText, timeCreated, repliedMessageID = null, attachments = [], isAudio = '0', isAnnouncement = '0') {
-    const messageList = getMessageListContainer(cid);
-    if (messageList) {
-        let userData;
-        const isMine = userID === currentUser['_id'];
-        if (isMine) {
-            userData = currentUser;
-        } else {
-            userData = await getUserData(userID);
-        }
-        if (!messageID) {
-            messageID = generateUUID();
-        }
-        let messageHTML = await buildUserMessageHTML(userData, cid, messageID, messageText, timeCreated, isMine, isAudio, isAnnouncement);
-        const blankChat = messageList.getElementsByClassName('blank_chat');
-        if (blankChat.length > 0) {
-            messageList.removeChild(blankChat[0]);
-        }
-        messageList.insertAdjacentHTML('beforeend', messageHTML);
-        scrollChatToLastMessage(cid);
-        resolveMessageAttachments(cid, messageID, attachments);
-        resolveUserReply(messageID, repliedMessageID);
-        addProfileDisplay(userID, cid, messageID, 'plain');
-        return messageID;
-    }
-}
-
-const PROMPT_STATES = {
-    1: 'RESP',
-    2: 'DISC',
-    3: 'VOTE'
-}
-
-/**
- * Returns HTML Element representing user row in prompt
- * @param promptID: target prompt id
- * @param userID: target user id
- * @return {HTMLElement}: HTML Element containing user prompt data
- */
-const getUserPromptTR = (promptID, userID) => {
-    return document.getElementById(`${promptID}_${userID}_prompt_row`);
-}
-
-/**
- * Adds prompt message of specified user id
- * @param cid: target conversation id
- * @param userID: target submind user id
- * @param messageText: message of submind
- * @param promptId: target prompt id
- * @param promptState: prompt state to consider
- */
-async function addPromptMessage(cid, userID, messageText, promptId, promptState) {
-    const tableBody = document.getElementById(`${promptId}_tbody`);
-    if (await getCurrentSkin(cid) === CONVERSATION_SKINS.PROMPTS) {
-        try {
-            const userData = await getUserData(userID);
-            promptState = PROMPT_STATES[promptState].toLowerCase();
-            if (!getUserPromptTR(promptId, userID)) {
-                const newUserRow = await buildSubmindHTML(promptId, userID, userData, '', '', '');
-                tableBody.insertAdjacentHTML('beforeend', newUserRow);
-            }
-            try {
-                console.log("userData:", userData)
-                const messageElem = document.getElementById(`${promptId}_${userData['nickname']}_${promptState}`);
-                messageElem.innerText = messageText;
-            } catch (e) {
-                console.warn(`Failed to add prompt message (${cid},${userID}, ${messageText}, ${promptId}, ${promptState}) - ${e}`)
-            }
-        } catch (e) {
-            console.info(`Skipping message of invalid prompt state - ${promptState}`);
-        }
-    }
-}
-
-
-/**
- * Returns first message id based on given element
- * @param firstChild: DOM element of first message child
- */
-function getFirstMessageFromCID(firstChild) {
-    if (firstChild.classList.contains('prompt-item')) {
-        const promptTable = firstChild.getElementsByTagName('table')[0];
-        const promptID = promptTable.id;
-        const promptTBody = promptTable.getElementsByTagName('tbody')[0];
-        let currentRecentMessage = null;
-        let currentOldestTS = null;
-        Array.from(promptTBody.getElementsByTagName('tr')).forEach(tr => {
-            const submindID = tr.getAttribute('data-submind-id');
-            ['resp', 'opinion', 'vote'].forEach(phase => {
-                const phaseElem = document.getElementById(`${promptID}_${submindID}_${phase}`);
-                if (phaseElem) {
-                    let createdOn = phaseElem.getAttribute(`data-created-on`);
-                    const messageID = phaseElem.getAttribute(`data-message-id`)
-                    if (createdOn && messageID) {
-                        createdOn = parseInt(createdOn);
-                        if (!currentOldestTS || createdOn < currentOldestTS) {
-                            currentOldestTS = createdOn;
-                            currentRecentMessage = messageID;
-                        }
-                    }
-                }
-            });
-        });
-        return currentRecentMessage;
-    } else {
-        return getMessageNode(firstChild, 'plain')?.id;
-    }
-}
-
-/**
- * Gets list of the next n-older messages
- * @param cid: target conversation id
- * @param skin: target conversation skin
- */
-async function addOldMessages(cid, skin = CONVERSATION_SKINS.BASE) {
-    const messageContainer = getMessageListContainer(cid);
-    if (messageContainer.children.length > 0) {
-        for (let i = 0; i < messageContainer.children.length; i++) {
-            const firstMessageItem = messageContainer.children[i];
-            const oldestMessageTS = await DBGateway.getInstance(DB_TABLES.CHAT_MESSAGES_PAGINATION).getItem(cid).then(res => res?.oldest_created_on || null);
-            if (oldestMessageTS) {
-                const numMessages = await getCurrentSkin(cid) === CONVERSATION_SKINS.PROMPTS ? 30 : 10;
-                await getConversationDataByInput(cid, skin, oldestMessageTS, numMessages).then(async conversationData => {
-                    if (messageContainer) {
-                        const userMessageList = getUserMessages(conversationData, null);
-                        userMessageList.sort((a, b) => {
-                            a['created_on'] - b['created_on'];
-                        }).reverse();
-                        for (const message of userMessageList) {
-                            message['cid'] = cid;
-                            if (!isDisplayed(getMessageID(message))) {
-                                const messageHTML = await messageHTMLFromData(message, skin);
-                                messageContainer.insertAdjacentHTML('afterbegin', messageHTML);
-                            } else {
-                                console.debug(`!!message_id=${message["message_id"]} is already displayed`)
-                            }
-                        }
-                        await initMessages(conversationData, skin);
-                    }
-                }).then(_ => {
-                    firstMessageItem.scrollIntoView({
-                        behavior: "smooth"
-                    });
-                });
-                break;
-            } else {
-                console.warn(`NONE first message id detected for cid=${cid}`)
-            }
-        }
-    }
-}
-
-
-/**
- * Returns message id based on message type
- * @param message: message object to check
- * @returns {null|*} message id extracted if valid message type detected
- */
-const getMessageID = (message) => {
-    switch (message['message_type']) {
-        case 'plain':
-            return message['message_id'];
-        case 'prompt':
-            return message['_id'];
-        default:
-            console.warn(`Invalid message structure received - ${message}`);
-            return null;
-    }
-}
-
-/**
- * Array of user messages in given conversation
- * @param conversationData: Conversation Data object to fetch
- * @param forceType: to force particular type of messages among the chat flow
- */
-const getUserMessages = (conversationData, forceType = 'plain') => {
-    try {
-        let messages = Array.from(conversationData['chat_flow']);
-        if (forceType) {
-            messages = messages.filter(message => message['message_type'] === forceType);
-        }
-        return messages;
-    } catch {
-        return [];
-    }
-}
-
-/**
- * Initializes listener for loading old message on scrolling conversation box
- * @param conversationData: Conversation Data object to fetch
- * @param skin: conversation skin to apply
- */
-function initLoadOldMessages(conversationData, skin) {
-    const cid = conversationData['_id'];
-    const messageList = getMessageListContainer(cid);
-    const messageListParent = messageList.parentElement;
-    setDefault(setDefault(conversationState, cid, {}), 'lastScrollY', 0);
-    messageListParent.addEventListener("scroll", async (e) => {
-        const oldScrollPosition = conversationState[cid]['scrollY'];
-        conversationState[cid]['scrollY'] = e.target.scrollTop;
-        if (oldScrollPosition > conversationState[cid]['scrollY'] &&
-            !conversationState[cid]['all_messages_displayed'] &&
-            conversationState[cid]['scrollY'] === 0) {
-            setChatState(cid, 'updating', 'Loading messages...')
-            await addOldMessages(cid, skin);
-            for (const inputType of ['incoming', 'outcoming']) {
-                await requestTranslation(cid, null, null, inputType);
-            }
-            setTimeout(() => {
-                setChatState(cid, 'active');
-            }, 700);
-        }
+    const dropdownMenu = document.getElementById(`bot-list-${cid}`);
+    dropdownMenu.addEventListener('click', (event) => {
+        event.stopPropagation();
     });
-}
 
-/**
- * Attaches event listener to display element's target user profile
- * @param userID target user id
- * @param elem target DOM element
- */
-function attachTargetProfileDisplay(userID, elem) {
-    if (elem) {
-        elem.addEventListener('click', async (_) => {
-            if (userID) await showProfileModal(userID)
-        });
-    }
-}
+    const table = document.getElementById(`${cid}-subminds-state-table`);
+    const entriesContainer = document.getElementById(`${cid}-subminds-state-entries`);
+    const buttonsContainer = document.getElementById(`${cid}-subminds-buttons`);
+    buttonsContainer.style.display = 'none';
+    const cancelButton = document.getElementById(`${cid}-reset-button`);
+    const submitButton = document.getElementById(`${cid}-submit-button`);
 
-/**
- * Adds callback for showing profile information on profile avatar click
- * @param userID target user id
- * @param cid target conversation id
- * @param messageId target message id
- * @param messageType type of message to display
- */
-function addProfileDisplay(userID, cid, messageId, messageType = 'plain') {
-    if (messageType === 'plain') {
-        attachTargetProfileDisplay(userID, document.getElementById(`${messageId}_avatar`))
-    } else if (messageType === 'prompt') {
-        const promptTBody = document.getElementById(`${messageId}_tbody`);
-        const rows = promptTBody.getElementsByTagName('tr');
-        Array.from(rows).forEach(row => {
-            attachTargetProfileDisplay(userID, Array.from(row.getElementsByTagName('td'))[0].getElementsByClassName('chat-img')[0]);
-        })
-    }
-}
+    const {
+        subminds_per_cid: submindsPerCID,
+        connected_subminds: connectedSubminds
+    } = submindsState;
 
+    const activeSubminds = submindsPerCID?.[cid]?.filter(submind => submind.status === 'active') || [];
+    const activeSubmindServices = new Set(activeSubminds.map(submind => submind.submind_id.slice(0, submind.submind_id.lastIndexOf('-'))))
 
-/**
- * Inits addProfileDisplay() on each message of provided conversation
- * @param conversationData - target conversation data
- */
-function initProfileDisplay(conversationData) {
-    getUserMessages(conversationData, null).forEach(message => {
-        addProfileDisplay(message['user_id'], conversationData['_id'], getMessageID(message), message['message_type']);
-    });
-}
+    const banned_subminds = submindsPerCID?.[cid]?.filter(submind => submind.status === 'banned') || [];
+    const bannedSubmindIds = new Set(banned_subminds.map(submind => submind.submind_id));
 
-
-/**
- * Inits pagination based on the oldest message creation timestamp
- * @param conversationData - target conversation data
- */
-async function initPagination(conversationData) {
-    const userMessages = getUserMessages(conversationData, null);
-    if (userMessages.length > 0) {
-        const oldestMessage = Math.min(...userMessages.map(msg => parseInt(msg.created_on)));
-        await DBGateway
-            .getInstance(DB_TABLES.CHAT_MESSAGES_PAGINATION)
-            .putItem({
-                cid: conversationData['_id'],
-                oldest_created_on: oldestMessage
+    const initialSubmindsState = [];
+    const processedServiceNames = [];
+    for (let [submindID, submindData] of Object.entries(connectedSubminds || {})) {
+        const serviceName = submindData.service_name;
+        const botType = submindData.bot_type;
+        if (botType === "submind" && !bannedSubmindIds.has(submindID) && !processedServiceNames.includes(serviceName)) {
+            processedServiceNames.push(serviceName)
+            initialSubmindsState.push({
+                service_name: serviceName,
+                is_active: activeSubmindServices.has(serviceName)
             })
-    }
-}
-
-
-/**
- * Initializes messages based on provided conversation aata
- * @param conversationData - JS Object containing conversation data of type:
- * {
- *     '_id': 'id of conversation',
- *     'conversation_name': 'title of the conversation',
- *     'chat_flow': [{
- *         'user_nickname': 'nickname of sender',
- *         'user_avatar': 'avatar of sender',
- *         'message_id': 'id of the message',
- *         'message_text': 'text of the message',
- *         'is_audio': true if message is an audio message
- *         'is_announcement': true if message is considered to be an announcement
- *         'created_on': 'creation time of the message'
- *     }, ... (num of user messages returned)]
- * }
- * @param skin - target conversation skin to consider
- */
-async function initMessages(conversationData, skin) {
-    initProfileDisplay(conversationData);
-    attachReplies(conversationData);
-    addAttachments(conversationData);
-    addCommunicationChannelTransformCallback(conversationData);
-    initLoadOldMessages(conversationData, skin);
-    await initPagination(conversationData);
-}
-
-/**
- * Emits user message to Socket IO Server
- * @param textInputElem: DOM Element with input text (audio object if isAudio=true)
- * @param cid: Conversation ID
- * @param repliedMessageID: ID of replied message
- * @param attachments: list of attachments file names
- * @param isAudio: is audio message being emitted (defaults to '0')
- * @param isAnnouncement: is message an announcement (defaults to '0')
- */
-function emitUserMessage(textInputElem, cid, repliedMessageID = null, attachments = [], isAudio = '0', isAnnouncement = '0') {
-    if (isAudio === '1' || textInputElem && textInputElem.value) {
-        const timeCreated = getCurrentTimestamp();
-        let messageText;
-        if (isAudio === '1') {
-            messageText = textInputElem;
-        } else {
-            messageText = textInputElem.value;
-        }
-        addNewMessage(cid, currentUser['_id'], null, messageText, timeCreated, repliedMessageID, attachments, isAudio, isAnnouncement).then(async messageID => {
-            const preferredShoutLang = getPreferredLanguage(cid, 'outcoming');
-            socket.emitAuthorized('user_message', {
-                'cid': cid,
-                'userID': currentUser['_id'],
-                'messageText': messageText,
-                'messageID': messageID,
-                'lang': preferredShoutLang,
-                'attachments': attachments,
-                'isAudio': isAudio,
-                'isAnnouncement': isAnnouncement,
-                'timeCreated': timeCreated
-            });
-            if (preferredShoutLang !== 'en') {
-                await requestTranslation(cid, messageID, 'en', 'outcoming', true);
-            }
-            addMessageTransformCallback(cid, messageID, isAudio);
-        });
-        if (isAudio === '0') {
-            textInputElem.value = "";
         }
     }
-}
-/**
- * Object representing loaded HTML components mapping:
- * - key: component name,
- * - value: HTML template that should be populated with actual data)
- * @type Object
- */
-let loadedComponents = {}
-
-/**
- * Fetches template context into provided html template
- * @param html: HTML template
- * @param templateContext: object containing context to fetch
- * @return {string} HTML with fetched context
- */
-function fetchTemplateContext(html, templateContext) {
-    for (const [key, value] of Object.entries(templateContext)) {
-        html = html.replaceAll('{' + key + '}', value);
-    }
-    return html;
-}
-
-/**
- * Builds HTML from passed params and template name
- * @param templateName: name of the template to fetch
- * @param templateContext: properties from template to fetch
- * @param requestArgs: request string arguments (optional)
- * @returns built template string
- */
-async function buildHTMLFromTemplate(templateName, templateContext = {}, requestArgs = '') {
-    if (!configData['DISABLE_CACHING'] && loadedComponents.hasOwnProperty(templateName) && !requestArgs) {
-        const html = loadedComponents[templateName];
-        return fetchTemplateContext(html, templateContext);
-    } else {
-        return await fetch(`${configData['currentURLBase']}/components/${templateName}?${requestArgs}`)
-            .then((response) => {
-                if (response.ok) {
-                    return response.text();
-                }
-                throw `template unreachable (HTTP STATUS:${response.status}: ${response.statusText})`
-            })
-            .then((html) => {
-                if (!(configData['DISABLE_CACHING'] || loadedComponents.hasOwnProperty(templateName) || requestArgs)) {
-                    loadedComponents[templateName] = html;
-                }
-                return fetchTemplateContext(html, templateContext);
-            }).catch(err => console.warn(`Failed to fetch template for ${templateName}: ${err}`));
-    }
-}
-
-
-/**
- * Get Node id based on language key
- * @param cid: desired conversation id
- * @param key: language key (e.g. 'en')
- * @param inputType: type of the language input to apply (incoming or outcoming)
- * @return {string} ID of Node
- */
-function getLangOptionID(cid, key, inputType = 'incoming') {
-    return `language-option-${cid}-${inputType}-${key}`;
-}
-
-/**
- * Build language selection HTML based on provided params
- * @param cid: desired conversation id
- * @param key: language key (e.g 'en')
- * @param name: name of the language (e.g. English)
- * @param icon: language icon (refers to flag-icon specs)
- * @param inputType: type of the language input to apply (incoming or outcoming)
- * @return {string} formatted langSelectPattern
- */
-async function buildLangOptionHTML(cid, key, name, icon, inputType) {
-    return await buildHTMLFromTemplate('lang_option', {
-        'itemId': getLangOptionID(cid, key, inputType),
-        'key': key,
-        'name': name,
-        'icon': icon
+    initialSubmindsState.sort((a, b) => {
+        return b.is_active - a.is_active;
     })
-}
 
-/**
- * Builds user message HTML
- * @param userData: data of message sender
- * @param cid: conversation id of target message
- * @param messageID: id of user message
- * @param messageText: text of user message
- * @param timeCreated: date of creation
- * @param isMine: if message was emitted by current user
- * @param isAudio: if message is audio message (defaults to '0')
- * @param isAnnouncement: is message if announcement (defaults to '0')
- * @returns {string}: constructed HTML out of input params
- */
-async function buildUserMessageHTML(userData, cid, messageID, messageText, timeCreated, isMine, isAudio = '0', isAnnouncement = '0') {
-    const messageTime = getTimeFromTimestamp(timeCreated);
-    let shortedNick = `${userData['nickname'][0]}${userData['nickname'][userData['nickname'].length - 1]}`;
-    let imageComponent = `<p>${shortedNick}</p>`;
-    // if (userData.hasOwnProperty('avatar') && userData['avatar']){
-    //     imageComponent = `<img alt="${shortedNick}" onerror="handleImgError(this);" src="${configData["CHAT_SERVER_URL_BASE"]}/files/avatar/${userData['_id']}" loading="lazy">`
-    // }
-    const messageClass = isAnnouncement === '1' ? 'announcement' : isMine ? 'in' : 'out';
-    const messageOrientation = isMine ? 'right' : 'left';
-    let minificationEnabled = currentUser?.preferences?.minify_messages === '1' || await getCurrentSkin(cid) === CONVERSATION_SKINS.PROMPTS;
-    let templateSuffix = minificationEnabled ? '_minified' : '';
-    const templateName = isAudio === '1' ? `user_message_audio${templateSuffix}` : `user_message${templateSuffix}`;
-    if (isAudio === '0') {
-        messageText = messageText.replaceAll('\n', '<br>');
-    }
-    let statusIconHTML = '';
-    let userTooltip = userData['nickname'];
-    if (userData?.is_bot === '1') {
-        statusIconHTML = ' <span class="fa fa-robot"></span>'
-        userTooltip = `bot ${userTooltip}`
-    }
-    return await buildHTMLFromTemplate(templateName, {
-        'message_class': messageClass,
-        'is_announcement': isAnnouncement,
-        'image_component': imageComponent,
-        'message_id': messageID,
-        'user_tooltip': userTooltip,
-        'nickname': userData['nickname'],
-        'nickname_shrunk': shrinkToFit(userData['nickname'], 15, '..'),
-        'status_icon': statusIconHTML,
-        'message_text': messageText,
-        'message_orientation': messageOrientation,
-        'audio_url': `${configData["CHAT_SERVER_URL_BASE"]}/files/audio/${messageID}`,
-        'message_time': messageTime
-    });
-}
+    let currentState = structuredClone(initialSubmindsState);
 
-/**
- *
- * @param nick: nickname to shorten
- * @return {string} - shortened nickname
- */
-const shrinkNickname = (nick) => {
-    const index = nick.indexOf('_');
-    return (index !== -1 && index < 7) ? nick.substring(0, index) : nick.substring(0, 7);
-}
-
-/**
- * Generates dark color based on username
- * @param username
- * @returns {string} - generated color in hsl format
- */
-
-function generateDarkColorFromUsername(username) {
-    if (!username) {
-        return 'hsl(270, 70%, 30%)';
-    }
-    let hash = 0;
-    for (let i = 0; i < username.length; i++) {
-        hash = username.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    return `hsl(${hash % 360}, 70%, 30%)`;
-}
-
-/**
- * Builds Prompt Skin HTML for submind responses
- * @param promptID: target prompt id
- * @param submindID: user id of submind
- * @param submindUserData: user data of submind
- * @param submindResponse: Responding data of submind to incoming prompt
- * @param submindOpinion: Discussion data of submind to incoming prompt
- * @param submindVote: Vote data of submind in prompt
- * @return {Promise<string|void>} - Submind Data HTML populated with provided data
- */
-async function buildSubmindHTML(promptID, submindID, submindUserData, submindResponse, submindOpinion, submindVote) {
-    const userNickname = submindUserData['nickname'];
-    const participantIcon = await buildPromptParticipantIcon(userNickname);
-    const phaseDataObjectMapping = {
-        'response': submindResponse,
-        'opinion': submindOpinion,
-        'vote': submindVote
-    }
-    let templateData = {
-        'prompt_id': promptID,
-        'user_id': submindID,
-        'user_first_name': submindUserData['first_name'],
-        'user_last_name': submindUserData['last_name'],
-        'user_nickname': userNickname,
-        'participant_icon': participantIcon,
-        // 'user_avatar': `${configData["CHAT_SERVER_URL_BASE"]}/files/avatar/${submindID}`,
-    }
-    const submindPromptData = {}
-    for (const [k, v] of Object.entries(phaseDataObjectMapping)) {
-        submindPromptData[k] = v.message_text
-        submindPromptData[`${k}_message_id`] = v?.message_id
-        const dateCreated = getTimeFromTimestamp(v?.created_on);
-        submindPromptData[`${k}_created_on`] = v?.created_on;
-        submindPromptData[`${k}_created_on_tooltip`] = dateCreated ? `shouted on: ${dateCreated}` : `no ${k} from ${userNickname} in this prompt`;
-    }
-    return await buildHTMLFromTemplate("prompt_participant", Object.assign(templateData, submindPromptData));
-}
-
-
-/**
- * Gets winner field HTML based on provided winner
- * @return {string} built winner field HTML
- * @param nickname of the winner
- * @param winner_response
- */
-async function buildPromptWinnerHTML(nickname, winner_response) {
-    return `
-<div class="d-flex flex-column align-items-center justify-content-center">
-<span class="mt-2 mb-3 font-weight-bold">Selected winner</span>
-${await buildPromptParticipantIcon(nickname)}
-<div style="max-width: 400px; margin-top: 20px;">
-${winner_response}
-</div>
-</div>
-`
-}
-
-/**
- * Builds prompt participant icon HTML
- * @param nickname of the participant
- * @returns prompt participant icon HTML
- */
-async function buildPromptParticipantIcon(nickname) {
-    const backgroundColor = generateDarkColorFromUsername(nickname);
-    const userNicknameShrunk = shrinkNickname(nickname);
-    let tooltip = nickname;
-    /* if (submindUserData['is_bot'])  assuming only bots participate for now*/
-    tooltip = `bot ${tooltip}`;
-    const template_data = {
-        'user_nickname': nickname,
-        'user_nickname_shrunk': userNicknameShrunk,
-        'background_color': backgroundColor,
-        // 'user_avatar': submindUserData['user_avatar'], not used for now
-        'tooltip': tooltip
-    }
-    return await buildHTMLFromTemplate("prompt_participant_icon", template_data)
-}
-
-
-/**
- * Builds prompt HTML from received prompt data
- * @param prompt: prompt object
- * @return Prompt HTML
- */
-async function buildPromptHTML(prompt) {
-    let submindsHTML = "";
-    let winnerFound = false;
-    const promptData = prompt['data'];
-    if (prompt['is_completed'] === '0') {
-        promptData['winner'] = `Prompt in progress
-<div class="spinner-border spinner-border-sm text-dark" role="status">
-<span class="sr-only">Loading...</span>
-</div>`
-    }
-    const emptyAnswer = `<h4>-</h4>`;
-    for (const submindID of Array.from(setDefault(promptData, 'participating_subminds', []))) {
-        let submindUserData;
-        try {
-            const searchedKeys = ['proposed_responses', 'submind_opinions', 'votes'];
-            let isLegacy = false;
-            try {
-                submindUserData = prompt['user_mapping'][submindID][0];
-            } catch (e) {
-                console.warn('Detected legacy prompt structure');
-                submindUserData = {
-                    'nickname': submindID,
-                    'first_name': 'Klat',
-                    'last_name': 'User',
-                    'is_bot': '0'
-                }
-                isLegacy = true
-            }
-            const data = {}
-            searchedKeys.forEach(key => {
-                try {
-                    const messageId = promptData[key][submindID];
-                    let value = null;
-                    if (!isLegacy) {
-                        value = prompt['message_mapping'][messageId][0];
-                        value['message_id'] = messageId;
-                    }
-                    if (!value) {
-                        value = {
-                            'message_text': emptyAnswer
-                        }
-                    }
-                    data[key] = value;
-                } catch (e) {
-                    data[key] = {
-                        'message_text': emptyAnswer
-                    };
-                }
-            });
-            if (promptData['winner'] === submindUserData['nickname']) {
-                winnerFound = true;
-                promptData['winner'] = await buildPromptWinnerHTML(
-                    submindUserData['nickname'],
-                    data.proposed_responses['message_text']
-                );
-            }
-            submindsHTML += await buildSubmindHTML(prompt['_id'], submindID, submindUserData,
-                data.proposed_responses, data.submind_opinions, data.votes);
-        } catch (e) {
-            console.log(`Malformed data for ${submindID} (prompt_id=${prompt['_id']}) ex=${e}`);
-        }
-    }
-    if (!winnerFound && prompt['is_completed'] === '1') {
-        promptData['winner'] = 'Consensus not reached.'
-    }
-    return await buildHTMLFromTemplate("prompt_table", {
-        'prompt_text': promptData['prompt_text'],
-        'selected_winner': promptData['winner'],
-        'prompt_participants_data': submindsHTML,
-        'prompt_id': prompt['_id'],
-        'cid': prompt['cid'],
-        'message_time': prompt['created_on']
-    });
-}
-
-/**
- * Gets user message HTML from received message data object
- * @param message: Message Object received
- * @param skin: conversation skin
- * @return {Promise<string>} HTML by the provided message data
- */
-async function messageHTMLFromData(message, skin = CONVERSATION_SKINS.BASE) {
-    if (skin === CONVERSATION_SKINS.PROMPTS && message['message_type'] === 'prompt') {
-        return buildPromptHTML(message);
-    } else {
-        const isMine = currentUser && message['user_nickname'] === currentUser['nickname'];
-        return buildUserMessageHTML({
-                'avatar': message['user_avatar'],
-                'nickname': message['user_nickname'],
-                'is_bot': message['user_is_bot'],
-                '_id': message['user_id']
-            },
-            message['cid'],
-            message['message_id'],
-            message['message_text'],
-            message['created_on'],
-            isMine,
-            message?.is_audio,
-            message?.is_announcement);
-    }
-}
-
-/**
- * Builds HTML for received conversation data
- * @param conversationData: JS Object containing conversation data of type:
- * {
- *     '_id': 'id of conversation',
- *     'conversation_name': 'title of the conversation',
- *     'chat_flow': [{
- *         'user_nickname': 'nickname of sender',
- *         'user_avatar': 'avatar of sender',
- *         'message_id': 'id of the message',
- *         'message_text': 'text of the message',
- *         'created_on': 'creation time of the message'
- *     }, ... (num of user messages returned)]
- * }
- * @param skin: conversation skin to build
- * @returns {string} conversation HTML based on provided data
- */
-async function buildConversationHTML(conversationData = {}, skin = CONVERSATION_SKINS.BASE) {
-    const cid = conversationData['_id'];
-    const conversation_name = conversationData['conversation_name'];
-    let chatFlowHTML = "";
-    if (conversationData.hasOwnProperty('chat_flow')) {
-        for (const message of Array.from(conversationData['chat_flow'])) {
-            message['cid'] = cid;
-            chatFlowHTML += await messageHTMLFromData(message, skin);
-            // if (skin === CONVERSATION_SKINS.BASE) {
-            // }
-        }
-    } else {
-        chatFlowHTML += `<div class="blank_chat">No messages in this chat yet...</div>`;
-    }
-    const conversationNameShrunk = shrinkToFit(conversation_name, 6);
-    let nanoHeaderHTML = '';
-    if (configData.client === CLIENTS.NANO) {
-        nanoHeaderHTML = await buildHTMLFromTemplate('nano_header', {
-            'cid': cid
-        })
-    }
-    return await buildHTMLFromTemplate('conversation', {
-        'cid': cid,
-        'nano_header': nanoHeaderHTML,
-        'conversation_name': conversation_name,
-        'conversation_name_shrunk': conversationNameShrunk,
-        'chat_flow': chatFlowHTML
-    }, `skin=${skin}`);
-}
-
-/**
- * Builds suggestion HTML
- * @param cid: target conversation id
- * @param name: target conversation name
- * @return {Promise<string|void>} HTML with fetched data
- */
-const buildSuggestionHTML = async (cid, name) => {
-    return await buildHTMLFromTemplate('suggestion', {
-        'cid': cid,
-        'conversation_name': name
-    })
-};
-let userSettingsModal;
-let applyUserSettings;
-let minifyMessagesCheck;
-let settingsLink;
-
-/**
- * Displays relevant user settings section based on provided name
- * @param name: name of the section to display
- */
-const displaySection = (name) => {
-    Array.from(document.getElementsByClassName('user-settings-section')).forEach(elem => {
-        elem.hidden = true;
-    });
-    const elem = document.getElementById(`user-settings-${name}-section`);
-    elem.hidden = false;
-}
-
-/**
- * Displays user settings based on received preferences
- * @param preferences
- */
-const displayUserSettings = (preferences) => {
-    if (preferences) {
-        minifyMessagesCheck.checked = preferences?.minify_messages === '1'
-    }
-}
-
-/**
- * Initialises section of settings based on provided name
- * @param sectionName: name of the section provided
- */
-const initSettingsSection = async (sectionName) => {
-    await refreshCurrentUser(false)
-        .then(userData => displayUserSettings(userData?.preferences))
-        .then(_ => displaySection(sectionName));
-}
-
-/**
- * Initialises User Settings Modal
- */
-const initSettingsModal = async () => {
-    Array.from(document.getElementsByClassName('nav-user-settings')).forEach(navItem => {
-        navItem.addEventListener('click', async (e) => {
-            await initSettingsSection(navItem.getAttribute('data-section-name'));
-        });
-    });
-}
-
-/**
- * Applies new settings to current user
- */
-const applyNewSettings = async () => {
-    const newUserSettings = {
-        'minify_messages': minifyMessagesCheck.checked ? '1' : '0'
+    const updateButtonVisibility = () => {
+        const hasChanges = initialSubmindsState.some((submind, index) => submind.is_active !== currentState[index].is_active);
+        buttonsContainer.style.display = hasChanges ? 'block' : 'none';
     };
-    const query_url = 'preferences/update'
-    await fetchServer(query_url, REQUEST_METHODS.POST, newUserSettings, true).then(async response => {
-        const responseJson = await response.json();
-        if (response.ok) {
-            location.reload();
-        } else {
-            displayAlert(document.getElementById(`userSettingsModalBody`),
-                `${responseJson['msg']}`,
-                'danger');
-        }
-    });
-}
 
-function initSettings(elem) {
-    elem.addEventListener('click', async (e) => {
-        await initSettingsModal();
-        userSettingsModal.modal('show');
-    });
-}
+    table.style.display = '';
+    entriesContainer.innerHTML = '';
 
-/**
- * Initialise user settings links based on the current client
- */
-const initSettingsLinks = () => {
-    if (configData.client === CLIENTS.NANO) {
-        console.log('initialising settings link for ', Array.from(document.getElementsByClassName('settings-link')).length, ' elements')
-        Array.from(document.getElementsByClassName('settings-link')).forEach(elem => {
-            initSettings(elem);
-        });
-    } else {
-        initSettings(document.getElementById('settingsLink'));
-    }
-}
-
-document.addEventListener('DOMContentLoaded', (_) => {
-    if (configData.client === CLIENTS.MAIN) {
-        userSettingsModal = $('#userSettingsModal');
-        applyUserSettings = document.getElementById('applyUserSettings');
-        minifyMessagesCheck = document.getElementById('minifyMessages');
-        applyUserSettings.addEventListener('click', async (e) => await applyNewSettings());
-        settingsLink = document.getElementById('settingsLink');
-        settingsLink.addEventListener('click', async (e) => {
-            e.preventDefault();
-            await initSettingsModal();
-            userSettingsModal.modal('show');
-        });
-    } else {
-        document.addEventListener('modalsLoaded', (e) => {
-            userSettingsModal = $('#userSettingsModal');
-            applyUserSettings = document.getElementById('applyUserSettings');
-            minifyMessagesCheck = document.getElementById('minifyMessages');
-            applyUserSettings.addEventListener('click', async (e) => await applyNewSettings());
-            if (configData.client === CLIENTS.MAIN) {
-                initSettingsLinks();
-            }
-        });
-
-        document.addEventListener('nanoChatsLoaded', (e) => {
-            setTimeout(() => initSettingsLinks(), 1000);
-        })
-    }
-});
-const REQUEST_METHODS = {
-    GET: 'GET',
-    PUT: 'PUT',
-    DELETE: 'DELETE',
-    POST: 'POST'
-}
-
-const controllers = new Set();
-
-
-const getSessionToken = () => {
-    return localStorage.getItem('session') || '';
-}
-
-const setSessionToken = (val) => {
-    const currentValue = getSessionToken();
-    localStorage.setItem('session', val);
-    if (currentValue && currentValue !== val) {
-        location.reload();
-    }
-}
-
-const fetchServer = async (urlSuffix, method = REQUEST_METHODS.GET, body = null, json = false) => {
-    const controller = new AbortController();
-    controllers.add(controller);
-    const signal = controller.signal;
-
-    const options = {
-        method: method,
-        headers: new Headers({
-            'Authorization': getSessionToken()
-        }),
-        signal,
-    }
-    if (body) {
-        options['body'] = body;
-    }
-    // TODO: there is an issue validating FormData on backend, so JSON property should eventually become true
-    if (json) {
-        options['headers'].append('Content-Type', 'application/json');
-        if (options['body']) {
-            options['body'] &&= JSON.stringify(options['body'])
-        }
-    }
-    return fetch(`${configData["CHAT_SERVER_URL_BASE"]}/${urlSuffix}`, options).then(async response => {
-        if (response.status === 401) {
-            const responseJson = await response.json();
-            if (responseJson['msg'] === 'Session token is invalid or expired') {
-                localStorage.removeItem('session');
-                location.reload();
-            }
-        }
-        return response;
-    }).finally(() => {
-        controllers.delete(controller);
-    });
-}
-
-
-document.addEventListener('beforeunload', () => {
-    for (const controller of controllers) {
-        controller.abort();
-    }
-});
-/**
- * Renders suggestions HTML
- */
-async function renderSuggestions() {
-    const displayedCids = Object.values(await retrieveItemsLayout(true)).join(',');
-    await fetchServer(`chat_api/get_popular_cids?limit=5&search_str=${conversationSearchInput.value}&exclude_items=${displayedCids}`).then(async response => {
-        const items = await response.json();
-        importConversationModalSuggestions.innerHTML = "";
-        for (const item of Array.from(items)) {
-            importConversationModalSuggestions.insertAdjacentHTML('afterbegin', await buildSuggestionHTML(item['_id'], item['conversation_name']));
-        }
-        Array.from(importConversationModalSuggestions.getElementsByClassName('suggestion-item')).forEach(item => {
-            const cid = item.getAttribute('data-cid');
-            if (cid) {
-                item.addEventListener('click', async (e) => {
-                    await displayConversation(cid);
-                    conversationSearchInput.value = "";
-                    importConversationModal.modal('hide');
-                    // importConversationModalSuggestions.innerHTML = "";
-                });
-                item.addEventListener('mouseover', (event) => {
-                    item.classList.add('selected')
-                });
-                item.addEventListener('mouseleave', (event) => {
-                    item.classList.remove('selected')
-                });
-            }
-        });
-        importConversationModalSuggestions.style.setProperty('display', 'inherit', 'important');
-    });
-}
-let __inputFileList = {};
-
-/**
- * Gets uploaded files from specified conversation id
- * @param cid specified conversation id
- * @return {*} list of files from specified cid if any
- */
-function getUploadedFiles(cid) {
-    if (__inputFileList.hasOwnProperty(cid)) {
-        return __inputFileList[cid];
-    }
-    return [];
-}
-
-/**
- * Cleans uploaded files per conversation
- */
-function cleanUploadedFiles(cid) {
-    if (__inputFileList.hasOwnProperty(cid)) {
-        delete __inputFileList[cid];
-    }
-    const attachmentsButton = document.getElementById('file-input-' + cid);
-    attachmentsButton.value = "";
-    const fileContainer = document.getElementById('filename-container-' + cid);
-    fileContainer.innerHTML = "";
-}
-
-/**
- * Adds File upload to specified cid
- * @param cid: mentioned cid
- * @param file: File object
- */
-function addUpload(cid, file) {
-    if (!__inputFileList.hasOwnProperty(cid)) {
-        __inputFileList[cid] = [];
-    }
-    __inputFileList[cid].push(file);
-}
-
-/**
- * Adds download request on attachment item click
- * @param attachmentItem: desired attachment item
- * @param cid: current conversation id
- * @param messageID: current message id
- */
-async function downloadAttachment(attachmentItem, cid, messageID) {
-    if (attachmentItem) {
-        const fileName = attachmentItem.getAttribute('data-file-name');
-        const mime = attachmentItem.getAttribute('data-mime');
-        const getFileURL = `files/${messageID}/get_attachment/${fileName}`;
-        await fetchServer(getFileURL).then(async response => {
-            response.ok ?
-                download(await response.blob(), fileName, mime) :
-                console.error(`No file data received for path,
-cid=${cid};\n
-message_id=${messageID};\n
-file_name=${fileName}`)
-        }).catch(err => console.error(`Failed to fetch: ${getFileURL}: ${err}`));
-    }
-}
-
-/**
- * Attaches message replies to initialized conversation
- * @param conversationData: conversation data object
- */
-function addAttachments(conversationData) {
-    if (conversationData.hasOwnProperty('chat_flow')) {
-        getUserMessages(conversationData).forEach(message => {
-            resolveMessageAttachments(conversationData['_id'], message['message_id'], message?.attachments);
-        });
-    }
-}
-
-/**
- * Activates attachments event listeners for message attachments in specified conversation
- * @param cid: desired conversation id
- * @param elem: parent element for attachment (defaults to document)
- */
-function activateAttachments(cid, elem = null) {
-    if (!elem) {
-        elem = document;
-    }
-    Array.from(elem.getElementsByClassName('attachment-item')).forEach(attachmentItem => {
-        attachmentItem.addEventListener('click', async (e) => {
-            e.preventDefault();
-            const attachmentName = attachmentItem.getAttribute('data-file-name');
-            try {
-                setChatState(cid, 'updating', `Downloading attachment file`);
-                await downloadAttachment(attachmentItem, cid, attachmentItem.parentNode.parentNode.id);
-            } catch (e) {
-                console.warn(`Failed to download attachment file - ${attachmentName} (${e})`)
-            } finally {
-                setChatState(cid, 'active');
-            }
-        });
-    });
-}
-
-
-/**
- * Returns DOM element to include as file resolver based on its name
- * @param filename: name of file to fetch
- * @return {string}: resulting DOM element
- */
-function attachmentHTMLBasedOnFilename(filename) {
-
-    let fSplitted = filename.split('.');
-    if (fSplitted.length > 1) {
-        const extension = fSplitted.pop();
-        const shrinkedName = shrinkToFit(filename, 12, `...${extension}`);
-        if (IMAGE_EXTENSIONS.includes(extension)) {
-            return `<i class="fa fa-file-image"></i> ${shrinkedName}`;
-        } else {
-            return shrinkedName;
-        }
-    }
-    return shrinkToFit(filename, 12);
-}
-
-/**
- * Resolves attachments to the message
- * @param cid: id of conversation
- * @param messageID: id of user message
- * @param attachments list of attachments received
- */
-function resolveMessageAttachments(cid, messageID, attachments = []) {
-    if (messageID) {
-        const messageElem = document.getElementById(messageID);
-        if (messageElem) {
-            const attachmentToggle = messageElem.getElementsByClassName('attachment-toggle')[0];
-            if (attachments.length > 0) {
-                if (messageElem) {
-                    const attachmentPlaceholder = messageElem.getElementsByClassName('attachments-placeholder')[0];
-                    attachments.forEach(attachment => {
-                        const attachmentHTML = `<span class="attachment-item" data-file-name="${attachment['name']}" data-mime="${attachment['mime']}" data-size="${attachment['size']}">
-${attachmentHTMLBasedOnFilename(attachment['name'])}
-</span><br>`;
-                        attachmentPlaceholder.insertAdjacentHTML('afterbegin', attachmentHTML);
-                    });
-                    attachmentToggle.addEventListener('click', (e) => {
-                        attachmentPlaceholder.style.display = attachmentPlaceholder.style.display === "none" ? "" : "none";
-                    });
-                    activateAttachments(cid, attachmentPlaceholder);
-                    attachmentToggle.style.display = "";
-                    // attachmentPlaceholder.style.display = "";
-                }
-            } else {
-                attachmentToggle.style.display = "none";
-            }
-        }
-    }
-}
-let socket;
-
-const sioTriggeringEvents = ['configLoaded', 'configNanoLoaded'];
-
-sioTriggeringEvents.forEach(event => {
-    document.addEventListener(event, _ => {
-        socket = initSIO();
-    });
-});
-
-/**
- * Inits socket io client listener by attaching relevant listeners on message channels
- * @return {Socket} Socket IO client instance
- */
-function initSIO() {
-
-    const sioServerURL = configData['CHAT_SERVER_URL_BASE'];
-
-    const socket = io(
-        sioServerURL, {
-            extraHeaders: {
-                "session": getSessionToken()
-            }
-        }
-    );
-
-    socket.__proto__.emitAuthorized = (event, data) => {
-        socket.io.opts.extraHeaders.session = getSessionToken();
-        return socket.emit(event, data);
-    }
-
-    socket.on('auth_expired', () => {
-        if (currentUser && Object.keys(currentUser).length > 0) {
-            console.log('Authorization Token expired, refreshing...')
-            location.reload();
-        }
-    });
-
-    socket.on('connect', () => {
-        console.info(`Socket IO Connected to Server: ${sioServerURL}`)
-    });
-
-    socket.on("connect_error", (err) => {
-        console.log(`connect_error due to ${err.message}`);
-    });
-
-    socket.on('new_prompt_created', async (prompt) => {
-        const messageContainer = getMessageListContainer(prompt['cid']);
-        const promptID = prompt['_id'];
-        if (await getCurrentSkin(prompt['cid']) === CONVERSATION_SKINS.PROMPTS) {
-            if (!document.getElementById(promptID)) {
-                const messageHTML = await buildPromptHTML(prompt);
-                messageContainer.insertAdjacentHTML('beforeend', messageHTML);
-            }
-        }
-    });
-
-    socket.on('new_message', async (data) => {
-        if (await getCurrentSkin(data.cid) === CONVERSATION_SKINS.PROMPTS && data?.prompt_id) {
-            console.debug('Skipping prompt-related message')
-            return
-        }
-        // console.debug('received new_message -> ', data)
-        const preferredLang = getPreferredLanguage(data['cid']);
-        if (data?.lang !== preferredLang) {
-            requestTranslation(data['cid'], data['messageID']).catch(err => console.error(`Failed to request translation of cid=${data['cid']} messageID=${data['messageID']}: ${err}`));
-        }
-        addNewMessage(data['cid'], data['userID'], data['messageID'], data['messageText'], data['timeCreated'], data['repliedMessage'], data['attachments'], data?.isAudio, data?.isAnnouncement)
-            .then(_ => addMessageTransformCallback(data['cid'], data['messageID'], data?.isAudio))
-            .catch(err => console.error('Error occurred while adding new message: ', err));
-    });
-
-    socket.on('new_prompt_message', async (message) => {
-        await addPromptMessage(message['cid'], message['userID'], message['messageText'], message['promptID'], message['promptState'])
-            .catch(err => console.error('Error occurred while adding new prompt data: ', err));
-    });
-
-    socket.on('set_prompt_completed', async (data) => {
-        const promptID = data['prompt_id'];
-        const promptElem = document.getElementById(promptID);
-        console.info(`setting prompt_id=${promptID} as completed`);
-        if (promptElem) {
-            const promptWinner = document.getElementById(`${promptID}_winner`);
-            const winner_response = document.getElementById(`${promptID}_${data['winner']}_resp`).innerText;
-            console.log("data:", data)
-            promptWinner.innerHTML = await buildPromptWinnerHTML(data['winner'], winner_response);
-        } else {
-            console.warn(`Failed to get HTML element from prompt_id=${promptID}`);
-        }
-    });
-
-    socket.on('translation_response', async (data) => {
-        console.debug('translation_response: ', data)
-        await applyTranslations(data);
-    });
-
-    socket.on('subminds_state', async (data) => {
-        console.debug('subminds_state: ', data)
-        parseSubmindsState(data);
-    });
-
-    socket.on('incoming_tts', (data) => {
-        console.debug('received incoming stt audio');
-        playTTS(data['cid'], data['lang'], data['audio_data']);
-    });
-
-    socket.on('incoming_stt', (data) => {
-        console.debug('received incoming stt response');
-        showSTT(data['message_id'], data['lang'], data['message_text']);
-    });
-
-    // socket.on('updated_shouts', async (data) =>{
-    //     const inputType = data['input_type'];
-    //     for (const [cid, shouts] of Object.entries(data['translations'])){
-    //        if (await getCurrentSkin(cid) === CONVERSATION_SKINS.BASE){
-    //            await requestTranslation(cid, shouts, null, inputType);
-    //        }
-    //    }
-    // });
-
-    return socket;
-}
-/**
- * Adds speaking callback for the message
- * @param cid: id of the conversation
- * @param messageID: id of the message
- */
-function addTTSCallback(cid, messageID) {
-    const speakingButton = document.getElementById(`${messageID}_speak`);
-    if (speakingButton) {
-        speakingButton.addEventListener('click', (e) => {
-            e.preventDefault();
-            getTTS(cid, messageID, getPreferredLanguage(cid));
-            setChatState(cid, 'updating', `Fetching TTS...`)
-        });
-    }
-}
-
-/**
- * Adds speaking callback for the message
- * @param cid: id of the conversation
- * @param messageID: id of the message
- */
-function addSTTCallback(cid, messageID) {
-    const sttButton = document.getElementById(`${messageID}_text`);
-    if (sttButton) {
-        sttButton.addEventListener('click', (e) => {
-            e.preventDefault();
-            const sttContent = document.getElementById(`${messageID}-stt`);
-            if (sttContent) {
-                sttContent.innerHTML = `<div class="text-center">
-Waiting for STT...  <div class="spinner-border spinner-border-sm" role="status">
-<span class="sr-only">Loading...</span>
+    initialSubmindsState.forEach((submind, index) => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+<td>${submind.service_name}</td>
+<td class="text-center">
+<div class="custom-control custom-switch">
+<input type="checkbox" class="custom-control-input" id="toggle-${cid}-${submind.service_name}" ${submind.is_active === true ? 'checked' : ''}>
+<label class="custom-control-label" for="toggle-${cid}-${submind.service_name}"></label>
 </div>
-</div>`;
-                sttContent.style.setProperty('display', 'block', 'important');
-                getSTT(cid, messageID, getPreferredLanguage(cid));
+</td>
+`;
+
+        const checkbox = row.querySelector(`#toggle-${cid}-${submind.service_name}`);
+        checkbox.addEventListener('change', () => {
+            currentState[index].is_active = checkbox.checked;
+            updateButtonVisibility();
+        });
+        entriesContainer.appendChild(row);
+    });
+
+    cancelButton.onclick = () => {
+        currentState = structuredClone(initialSubmindsState);
+        currentState.forEach((submind, index) => {
+            const checkbox = document.getElementById(`toggle-${cid}-${submind.service_name}`);
+            checkbox.checked = (submind.is_active) ? "checked" : '';
+        });
+        updateButtonVisibility();
+    };
+
+    submitButton.onclick = () => {
+        const modifiedSubminds = currentState.filter((current, index) => {
+            return current.is_active !== initialSubmindsState[index].is_active;
+        });
+
+        let subminds_to_remove = modifiedSubminds.filter(submind => !submind.is_active).map(submind => submind.service_name);
+        let subminds_to_add = modifiedSubminds.filter(submind => submind.is_active).map(submind => submind.service_name);
+
+        if (subminds_to_add.length !== 0 || subminds_to_remove.length !== 0) {
+            socket.emit('broadcast', {
+                msg_type: "update_participating_subminds",
+                "cid": cid,
+                "subminds_to_invite": subminds_to_add,
+                "subminds_to_kick": subminds_to_remove,
+            });
+        }
+
+        const dropdownToggle = document.getElementById(`dropdownToggle-${cid}`);
+        if (dropdownToggle) dropdownToggle.click();
+
+        buttonsContainer.style.display = 'none';
+    };
+}
+
+
+function parseSubmindsState(data) {
+    submindsState = data;
+
+    const cids = Object.keys(submindsState["subminds_per_cid"])
+    if (cids.length === 0) {
+        setAllCountersToZero();
+    } else {
+        for (const cid of cids) {
+            refreshSubmindsCount(cid);
+        }
+    }
+}
+/**
+ * Enum of possible Alert Behaviours:
+ * - DEFAULT: static alert message appeared with no expiration time
+ * - AUTO_EXPIRE: alert message will be expired after some amount of time (defaults to 3 seconds)
+ */
+const alertBehaviors = {
+    STATIC: 'static',
+    AUTO_EXPIRE: 'auto_expire'
+}
+
+/**
+ * Adds Bootstrap alert HTML to specified element's id
+ * @param parentElem: DOM Element in which to display alert
+ * @param text: Text of alert (defaults 'Error Occurred')
+ * @param alertType: Type of alert from bootstrap-supported alert types (defaults to 'danger')
+ * @param alertID: Id of alert to display (defaults to 'alert')
+ * @param alertBehaviorProperties: optional properties associated with alert message behavior
+ */
+function displayAlert(parentElem, text = 'Error Occurred', alertType = 'danger', alertID = 'alert',
+    alertBehaviorProperties = null) {
+    if (!parentElem) {
+        console.warn('Alert is not displayed as parentElem is not defined');
+        return
+    }
+    if (typeof parentElem === 'string') {
+        parentElem = document.getElementById(parentElem);
+    }
+    if (!['info', 'success', 'warning', 'danger', 'primary', 'secondary', 'dark'].includes(alertType)) {
+        alertType = 'danger'; //default
+    }
+    let alert = document.getElementById(alertID);
+    if (alert) {
+        alert.remove();
+    }
+
+    if (!alertBehaviorProperties) {
+        alertBehaviorProperties = {
+            'type': alertBehaviors.AUTO_EXPIRE,
+        }
+    }
+
+    if (text) {
+        parentElem.insertAdjacentHTML('afterbegin',
+            `<div class="alert alert-${alertType} alert-dismissible" role="alert" id="${alertID}">
+<b>${text}</b>
+<button type="button" class="close" data-dismiss="alert" aria-label="Close">
+<span aria-hidden="true">&times;</span>
+</button>
+</div>`);
+        if (alertBehaviorProperties) {
+            setDefault(alertBehaviorProperties, 'type', alertBehaviors.STATIC);
+            if (alertBehaviorProperties['type'] === alertBehaviors.AUTO_EXPIRE) {
+                const expirationTime = setDefault(alertBehaviorProperties, 'expiration', 3000);
+                const slideLength = setDefault(alertBehaviorProperties, 'fadeLength', 500);
+                setTimeout(function() {
+                    $(`#${alertID}`).slideUp(slideLength, () => {
+                        $(this).remove();
+                    });
+                }, expirationTime);
             }
-        });
+        }
     }
 }
 
 /**
- * Attaches STT capabilities for audio messages and TTS capabilities for text messages
- * @param cid: parent conversation id
- * @param messageID: target message id
- * @param isAudio: if its an audio message (defaults to '0')
+ * Generates UUID hex
+ * @param length: length of UUID (defaults to 8)
+ * @param strPattern: pattern to follow for UUID (optional)
+ * @returns {string} Generated UUID hex
  */
-function addMessageTransformCallback(cid, messageID, isAudio = '0') {
-    if (isAudio === '1') {
-        addSTTCallback(cid, messageID);
-    } else {
-        addTTSCallback(cid, messageID);
-    }
-}
-
-
-/**
- * Attaches STT capabilities for audio messages and TTS capabilities for text messages
- * @param conversationData: conversation data object
- */
-function addCommunicationChannelTransformCallback(conversationData) {
-    if (conversationData.hasOwnProperty('chat_flow')) {
-        getUserMessages(conversationData).forEach(message => {
-            addMessageTransformCallback(conversationData['_id'], message['message_id'], message?.is_audio);
-        });
-    }
-}
-/**
- * Downloads desired content
- * @param content: content to download
- * @param filename: name of the file to download
- * @param contentType: type of the content
- */
-function download(content, filename, contentType = 'application/octet-stream') {
-    if (content) {
-        const a = document.createElement('a');
-        const blob = new Blob([content], {
-            'type': contentType
-        });
-        a.href = window.URL.createObjectURL(blob);
-        a.target = 'blank';
-        a.download = filename;
-        a.click();
-        window.URL.revokeObjectURL(content);
-    } else {
-        console.warn('Skipping downloading as content is invalid')
-    }
-}
-
-/**
- * Handles error while loading the image data
- * @param image: target image Node
- */
-function handleImgError(image) {
-    const backgroundColor = image.getAttribute("data-bgcolor") || "#512DA8";
-    image.parentElement.insertAdjacentHTML('afterbegin',
-        `<p style="background: ${backgroundColor}">${image.getAttribute('alt')}</p>`
+function generateUUID(length = 8, strPattern = '00-0-4-1-000') {
+    const a = crypto.getRandomValues(new Uint16Array(length));
+    let i = 0;
+    return strPattern.replace(/[^-]/g,
+        s => (a[i++] + s * 0x10000 >> s).toString(16).padStart(4, '0')
     );
-    image.parentElement.removeChild(image);
 }
+
+/**
+ * Shrinks text to fit into desired length
+ * @param text: Text to shrink
+ * @param maxLength: max length of text to save
+ * @param suffix: suffix to apply after shrunk string
+ * @returns {string} Shrunk text, fitting into "maxLength"
+ */
+function shrinkToFit(text, maxLength, suffix = '...') {
+    if (text.length > maxLength) {
+        text = text.substring(0, maxLength) + suffix;
+    }
+    return text;
+}
+
+
+/**
+ * Converts file to base64
+ * @param file: desired file
+ * @return {Promise}
+ */
+const toBase64 = file => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = error => reject(error);
+});
+
+/**
+ * Extracts filename from path
+ * @param path: path to extract from
+ */
+function getFilenameFromPath(path) {
+    return path.replace(/.*[\/\\]/, '');
+}
+
+/**
+ * Fetches URL with no-cors mode
+ * @param url: URL to fetch
+ * @param properties: request properties
+ * @return {Promise<Response>}: Promise of fetching
+ */
+function fetchNoCors(url, properties = {}) {
+    properties['mode'] = 'no-cors';
+    return fetch(url, properties)
+}
+
+/**
+ * Checks if element is in current viewport
+ * @param element: DOM element to check
+ * @return {boolean} True if element in current viewport False otherwise
+ */
+function isInViewport(element) {
+    const rect = element.getBoundingClientRect();
+    return (
+        rect.top >= 0 &&
+        rect.left >= 0 &&
+        rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
+        rect.right <= (window.innerWidth || document.documentElement.clientWidth)
+    );
+}
+
+/**
+ * Sets default value to the object under the specified key
+ * @param obj: object to consider
+ * @param key: object key to set
+ * @param val: default value to set
+ */
+function setDefault(obj, key, val) {
+    if (obj) {
+        obj[key] ??= val;
+    }
+    return obj[key];
+}
+
+/**
+ * Aggregates provided array by the key of its elements
+ * @param arr: array to aggregate
+ * @param key: aggregation key
+ */
+function aggregateByKey(arr, key) {
+    const result = {}
+    arr.forEach(item => {
+        try {
+            const keyValue = item[key];
+            delete item[key];
+            if (keyValue && !result[keyValue]) {
+                result[keyValue] = item;
+            }
+        } catch (e) {
+            console.warn(`item=${item} has no key ${key}`)
+        }
+    });
+    return result;
+}
+
+/**
+ * Deletes provided element from DOM
+ * @param elem: DOM Object to delete
+ */
+function deleteElement(elem) {
+    if (elem && elem?.parentElement) return elem.parentElement.removeChild(elem);
+}
+
+/**
+ * Generic checker for value emptiness
+ * @param value - provided data to check
+ */
+function isEmpty(value) {
+    return (
+        // null or undefined
+        value == null ||
+        // has length and it's zero
+        (value.hasOwnProperty('length') && value.length === 0) ||
+        // is an Object and has no keys
+        (value.constructor === Object && Object.keys(value).length === 0)
+    );
+}
+
+const MIMES = [
+    ["xml", "application/xml"],
+    ["bin", "application/vnd.ms-excel.sheet.binary.macroEnabled.main"],
+    ["vml", "application/vnd.openxmlformats-officedocument.vmlDrawing"],
+    ["data", "application/vnd.openxmlformats-officedocument.model+data"],
+    ["bmp", "image/bmp"],
+    ["png", "image/png"],
+    ["gif", "image/gif"],
+    ["emf", "image/x-emf"],
+    ["wmf", "image/x-wmf"],
+    ["jpg", "image/jpeg"],
+    ["jpeg", "image/jpeg"],
+    ["tif", "image/tiff"],
+    ["tiff", "image/tiff"],
+    ["jfif", "image/jfif"],
+    ["pdf", "application/pdf"],
+    ["rels", "application/vnd.openxmlformats-package.relationships+xml"]
+];
+
+const IMAGE_EXTENSIONS = MIMES.filter(item => item[1].startsWith('image/')).map(item => item[0]);
+/**
+ * Returns current UNIX timestamp in seconds
+ * @return {number}: current unix timestamp
+ */
+const getCurrentTimestamp = () => {
+    return Math.floor(Date.now() / 1000);
+};
+
+// Client's timer
+// TODO consider refactoring to "timer per component" if needed
+let __timer = 0;
+
+
+/**
+ * Sets timer to current timestamp
+ */
+const startTimer = () => {
+    __timer = Date.now();
+};
+
+/**
+ * Resets times and returns time elapsed since invocation of startTimer()
+ * @return {number} Number of seconds elapsed
+ */
+const stopTimer = () => {
+    const timeDue = Date.now() - __timer;
+    __timer = 0;
+    return timeDue;
+};
 /**
  * Returns preferred language specified in provided cid
  * @param cid: provided conversation id
@@ -3030,160 +3021,164 @@ document.addEventListener('DOMContentLoaded', (_) => {
         await fetchSupportedLanguages().then(_ => document.dispatchEvent(supportedLanguagesLoadedEvent));
     });
 });
-const myAccountLink = document.getElementById('myAccountLink');
+let __inputFileList = {};
 
 /**
- * Shows modal associated with profile
- * @param nick: nickname to fetch
- * @param edit: to open modal in edit mode
- *
- * @return true if modal shown successfully, false otherwise
+ * Gets uploaded files from specified conversation id
+ * @param cid specified conversation id
+ * @return {*} list of files from specified cid if any
  */
-async function showProfileModal(userID = null, edit = '0') {
-    let fetchURL = `${configData['currentURLBase']}/components/profile?`
-    let modalId;
-    let avatarId;
-    if (edit === '1') {
-        modalId = `${currentUser['_id']}EditModal`;
-        // avatarId = `${currentUser['nickname']}EditAvatar`;
-        fetchURL += `edit=1`;
-    } else {
-        modalId = `${userID}Modal`;
-        // avatarId = `${nick}Avatar`;
-        fetchURL += `user_id=${userID}`;
+function getUploadedFiles(cid) {
+    if (__inputFileList.hasOwnProperty(cid)) {
+        return __inputFileList[cid];
     }
-    const profileModalHTML = await fetch(fetchURL, {
-        headers: new Headers({
-            'Authorization': getSessionToken()
-        })
-    }).then(async (response) => {
-        if (response.ok) {
-            return await response.text();
-        }
-        throw `unreachable (HTTP STATUS:${response.status}: ${response.statusText})`
-    }).catch(err => {
-        console.warn(err);
-        return null;
-    });
-    if (profileModalHTML) {
-        const existingModal = document.getElementById(modalId);
-        deleteElement(existingModal);
-        const main = document.getElementById('main');
-        main.insertAdjacentHTML('afterbegin', profileModalHTML);
-        const existingModalJQuery = $(`#${modalId}`);
-        existingModalJQuery.modal('show');
-        return true
-    }
-    return false;
+    return [];
 }
 
 /**
- * Convenience wrapper to show modal in the edit mode
+ * Cleans uploaded files per conversation
  */
-async function showProfileEditModal() {
-    return await showProfileModal(null, '1');
+function cleanUploadedFiles(cid) {
+    if (__inputFileList.hasOwnProperty(cid)) {
+        delete __inputFileList[cid];
+    }
+    const attachmentsButton = document.getElementById('file-input-' + cid);
+    attachmentsButton.value = "";
+    const fileContainer = document.getElementById('filename-container-' + cid);
+    fileContainer.innerHTML = "";
 }
 
 /**
- * Previews uploaded image
- * @param nickname: target nickname
+ * Adds File upload to specified cid
+ * @param cid: mentioned cid
+ * @param file: File object
  */
-const previewFile = (nickname) => {
-    const userNewAvatar = document.getElementById(`${nickname}NewAvatar`);
-    const userEditAvatar = document.getElementById(`${nickname}EditAvatar`);
-    if (userNewAvatar?.files.length > 0) {
-        const objectURL = window.URL.createObjectURL(userNewAvatar.files[0]);
-        try {
-            URL.revokeObjectURL(userEditAvatar.src);
-        } catch (e) {
-            console.debug('Its initial URL');
-        }
-        userEditAvatar.src = objectURL;
+function addUpload(cid, file) {
+    if (!__inputFileList.hasOwnProperty(cid)) {
+        __inputFileList[cid] = [];
+    }
+    __inputFileList[cid].push(file);
+}
+
+/**
+ * Adds download request on attachment item click
+ * @param attachmentItem: desired attachment item
+ * @param cid: current conversation id
+ * @param messageID: current message id
+ */
+async function downloadAttachment(attachmentItem, cid, messageID) {
+    if (attachmentItem) {
+        const fileName = attachmentItem.getAttribute('data-file-name');
+        const mime = attachmentItem.getAttribute('data-mime');
+        const getFileURL = `files/${messageID}/get_attachment/${fileName}`;
+        await fetchServer(getFileURL).then(async response => {
+            response.ok ?
+                download(await response.blob(), fileName, mime) :
+                console.error(`No file data received for path,
+cid=${cid};\n
+message_id=${messageID};\n
+file_name=${fileName}`)
+        }).catch(err => console.error(`Failed to fetch: ${getFileURL}: ${err}`));
     }
 }
 
-async function initProfileEditModal() {
-    const nickname = currentUser['nickname'];
-    if (currentUser?.is_tmp) {
-        loginModal.modal('show');
-        return
+/**
+ * Attaches message replies to initialized conversation
+ * @param conversationData: conversation data object
+ */
+function addAttachments(conversationData) {
+    if (conversationData.hasOwnProperty('chat_flow')) {
+        getUserMessages(conversationData).forEach(message => {
+            resolveMessageAttachments(conversationData['_id'], message['message_id'], message?.attachments);
+        });
     }
-    const modalShown = await showProfileEditModal().catch(err => {
-        console.warn(`Failed to show edit profile modal - ${err}`);
-        return false;
-    });
-    if (!modalShown) return;
-    const editProfileSubmitButton = document.getElementById(`${nickname}EditSubmit`);
-    const userNewAvatar = document.getElementById(`${nickname}NewAvatar`);
-    const userEditAvatar = document.getElementById(`${nickname}EditAvatar`);
-    const logoutButton = document.getElementById('logoutButton');
+}
 
-    editProfileSubmitButton.addEventListener('click', async (e) => {
-        e.preventDefault();
-        const nick = currentUser['nickname'];
-        const nickname = document.getElementById(`${nick}EditNickname`);
-        const firstName = document.getElementById(`${nick}EditFirstName`);
-        const lastName = document.getElementById(`${nick}EditLastName`);
-        const bio = document.getElementById(`${nick}EditBio`);
-        const password = document.getElementById(`${nick}EditPassword`);
-        const repeatPassword = document.getElementById(`${nick}RepeatEditPassword`);
-
-        const formData = new FormData();
-
-        if (userNewAvatar?.files.length > 0) {
-            formData.append('avatar', userNewAvatar.files[0]);
-        }
-        formData.append('user_id', currentUser['_id']);
-        formData.append('nickname', nickname.value);
-        formData.append('first_name', firstName.value);
-        formData.append('last_name', lastName.value);
-        formData.append('bio', bio.value);
-        formData.append('password', password.value);
-        formData.append('repeat_password', repeatPassword.value);
-
-        const query_url = `users_api/update`;
-        await fetchServer(query_url, REQUEST_METHODS.POST, formData).then(async response => {
-            const responseJson = await response.json();
-            if (response.ok) {
-                location.reload();
-            } else {
-                password.value = "";
-                repeatPassword.value = '';
-                displayAlert(document.getElementById(`${nick}EditBody`),
-                    `${responseJson['msg']}`,
-                    'danger');
+/**
+ * Activates attachments event listeners for message attachments in specified conversation
+ * @param cid: desired conversation id
+ * @param elem: parent element for attachment (defaults to document)
+ */
+function activateAttachments(cid, elem = null) {
+    if (!elem) {
+        elem = document;
+    }
+    Array.from(elem.getElementsByClassName('attachment-item')).forEach(attachmentItem => {
+        attachmentItem.addEventListener('click', async (e) => {
+            e.preventDefault();
+            const attachmentName = attachmentItem.getAttribute('data-file-name');
+            try {
+                setChatState(cid, 'updating', `Downloading attachment file`);
+                await downloadAttachment(attachmentItem, cid, attachmentItem.parentNode.parentNode.id);
+            } catch (e) {
+                console.warn(`Failed to download attachment file - ${attachmentName} (${e})`)
+            } finally {
+                setChatState(cid, 'active');
             }
         });
     });
-
-    userEditAvatar.addEventListener('click', (e) => {
-        e.preventDefault();
-        userNewAvatar.click();
-    });
-
-    logoutButton.addEventListener('click', (e) => {
-        $(`#${currentUser['nickname']}EditModal`).modal('hide');
-        logoutModal.modal('show');
-    });
 }
 
 
 /**
- * Attaches invoker for current profile edit modal
- * @param elem: target DOM element
+ * Returns DOM element to include as file resolver based on its name
+ * @param filename: name of file to fetch
+ * @return {string}: resulting DOM element
  */
-function attachEditModalInvoker(elem) {
-    elem.addEventListener('click', async (e) => {
-        e.preventDefault();
-        await initProfileEditModal();
-    });
+function attachmentHTMLBasedOnFilename(filename) {
+
+    let fSplitted = filename.split('.');
+    if (fSplitted.length > 1) {
+        const extension = fSplitted.pop();
+        const shrinkedName = shrinkToFit(filename, 12, `...${extension}`);
+        if (IMAGE_EXTENSIONS.includes(extension)) {
+            return `<i class="fa fa-file-image"></i> ${shrinkedName}`;
+        } else {
+            return shrinkedName;
+        }
+    }
+    return shrinkToFit(filename, 12);
 }
 
+/**
+ * Resolves attachments to the message
+ * @param cid: id of conversation
+ * @param messageID: id of user message
+ * @param attachments list of attachments received
+ */
+function resolveMessageAttachments(cid, messageID, attachments = []) {
+    if (messageID) {
+        const messageElem = document.getElementById(messageID);
+        if (messageElem) {
+            const attachmentToggle = messageElem.getElementsByClassName('attachment-toggle')[0];
+            if (attachments.length > 0) {
+                if (messageElem) {
+                    const attachmentPlaceholder = messageElem.getElementsByClassName('attachments-placeholder')[0];
+                    attachments.forEach(attachment => {
+                        const attachmentHTML = `<span class="attachment-item" data-file-name="${attachment['name']}" data-mime="${attachment['mime']}" data-size="${attachment['size']}">
+${attachmentHTMLBasedOnFilename(attachment['name'])}
+</span><br>`;
+                        attachmentPlaceholder.insertAdjacentHTML('afterbegin', attachmentHTML);
+                    });
+                    attachmentToggle.addEventListener('click', (e) => {
+                        attachmentPlaceholder.style.display = attachmentPlaceholder.style.display === "none" ? "" : "none";
+                    });
+                    activateAttachments(cid, attachmentPlaceholder);
+                    attachmentToggle.style.display = "";
+                    // attachmentPlaceholder.style.display = "";
+                }
+            } else {
+                attachmentToggle.style.display = "none";
+            }
+        }
+    }
+}
+document.addEventListener('configLoaded', async (_) => {
 
-document.addEventListener('DOMContentLoaded', (e) => {
-
-    if (configData.client === CLIENTS.MAIN) {
-        attachEditModalInvoker(myAccountLink);
+    const buildVersion = configData?.["BUILD_VERSION"];
+    const buildTS = configData?.["BUILD_TS"];
+    if (buildVersion && buildTS) {
+        document.getElementById("app-version").innerText = `v${buildVersion} (${getTimeFromTimestamp(buildTS)})`;
     }
 });
 let currentUserNavDisplay = document.getElementById('currentUserNavDisplay');
@@ -3528,6 +3523,195 @@ document.addEventListener('DOMContentLoaded', async (e) => {
         });
     }
 });
+/**
+ * Downloads desired content
+ * @param content: content to download
+ * @param filename: name of the file to download
+ * @param contentType: type of the content
+ */
+function download(content, filename, contentType = 'application/octet-stream') {
+    if (content) {
+        const a = document.createElement('a');
+        const blob = new Blob([content], {
+            'type': contentType
+        });
+        a.href = window.URL.createObjectURL(blob);
+        a.target = 'blank';
+        a.download = filename;
+        a.click();
+        window.URL.revokeObjectURL(content);
+    } else {
+        console.warn('Skipping downloading as content is invalid')
+    }
+}
+
+/**
+ * Handles error while loading the image data
+ * @param image: target image Node
+ */
+function handleImgError(image) {
+    const backgroundColor = image.getAttribute("data-bgcolor") || "#512DA8";
+    image.parentElement.insertAdjacentHTML('afterbegin',
+        `<p style="background: ${backgroundColor}">${image.getAttribute('alt')}</p>`
+    );
+    image.parentElement.removeChild(image);
+}
+const myAccountLink = document.getElementById('myAccountLink');
+
+/**
+ * Shows modal associated with profile
+ * @param nick: nickname to fetch
+ * @param edit: to open modal in edit mode
+ *
+ * @return true if modal shown successfully, false otherwise
+ */
+async function showProfileModal(userID = null, edit = '0') {
+    let fetchURL = `${configData['currentURLBase']}/components/profile?`
+    let modalId;
+    let avatarId;
+    if (edit === '1') {
+        modalId = `${currentUser['_id']}EditModal`;
+        // avatarId = `${currentUser['nickname']}EditAvatar`;
+        fetchURL += `edit=1`;
+    } else {
+        modalId = `${userID}Modal`;
+        // avatarId = `${nick}Avatar`;
+        fetchURL += `user_id=${userID}`;
+    }
+    const profileModalHTML = await fetch(fetchURL, {
+        headers: new Headers({
+            'Authorization': getSessionToken()
+        })
+    }).then(async (response) => {
+        if (response.ok) {
+            return await response.text();
+        }
+        throw `unreachable (HTTP STATUS:${response.status}: ${response.statusText})`
+    }).catch(err => {
+        console.warn(err);
+        return null;
+    });
+    if (profileModalHTML) {
+        const existingModal = document.getElementById(modalId);
+        deleteElement(existingModal);
+        const main = document.getElementById('main');
+        main.insertAdjacentHTML('afterbegin', profileModalHTML);
+        const existingModalJQuery = $(`#${modalId}`);
+        existingModalJQuery.modal('show');
+        return true
+    }
+    return false;
+}
+
+/**
+ * Convenience wrapper to show modal in the edit mode
+ */
+async function showProfileEditModal() {
+    return await showProfileModal(null, '1');
+}
+
+/**
+ * Previews uploaded image
+ * @param nickname: target nickname
+ */
+const previewFile = (nickname) => {
+    const userNewAvatar = document.getElementById(`${nickname}NewAvatar`);
+    const userEditAvatar = document.getElementById(`${nickname}EditAvatar`);
+    if (userNewAvatar?.files.length > 0) {
+        const objectURL = window.URL.createObjectURL(userNewAvatar.files[0]);
+        try {
+            URL.revokeObjectURL(userEditAvatar.src);
+        } catch (e) {
+            console.debug('Its initial URL');
+        }
+        userEditAvatar.src = objectURL;
+    }
+}
+
+async function initProfileEditModal() {
+    const nickname = currentUser['nickname'];
+    if (currentUser?.is_tmp) {
+        loginModal.modal('show');
+        return
+    }
+    const modalShown = await showProfileEditModal().catch(err => {
+        console.warn(`Failed to show edit profile modal - ${err}`);
+        return false;
+    });
+    if (!modalShown) return;
+    const editProfileSubmitButton = document.getElementById(`${nickname}EditSubmit`);
+    const userNewAvatar = document.getElementById(`${nickname}NewAvatar`);
+    const userEditAvatar = document.getElementById(`${nickname}EditAvatar`);
+    const logoutButton = document.getElementById('logoutButton');
+
+    editProfileSubmitButton.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const nick = currentUser['nickname'];
+        const nickname = document.getElementById(`${nick}EditNickname`);
+        const firstName = document.getElementById(`${nick}EditFirstName`);
+        const lastName = document.getElementById(`${nick}EditLastName`);
+        const bio = document.getElementById(`${nick}EditBio`);
+        const password = document.getElementById(`${nick}EditPassword`);
+        const repeatPassword = document.getElementById(`${nick}RepeatEditPassword`);
+
+        const formData = new FormData();
+
+        if (userNewAvatar?.files.length > 0) {
+            formData.append('avatar', userNewAvatar.files[0]);
+        }
+        formData.append('user_id', currentUser['_id']);
+        formData.append('nickname', nickname.value);
+        formData.append('first_name', firstName.value);
+        formData.append('last_name', lastName.value);
+        formData.append('bio', bio.value);
+        formData.append('password', password.value);
+        formData.append('repeat_password', repeatPassword.value);
+
+        const query_url = `users_api/update`;
+        await fetchServer(query_url, REQUEST_METHODS.POST, formData).then(async response => {
+            const responseJson = await response.json();
+            if (response.ok) {
+                location.reload();
+            } else {
+                password.value = "";
+                repeatPassword.value = '';
+                displayAlert(document.getElementById(`${nick}EditBody`),
+                    `${responseJson['msg']}`,
+                    'danger');
+            }
+        });
+    });
+
+    userEditAvatar.addEventListener('click', (e) => {
+        e.preventDefault();
+        userNewAvatar.click();
+    });
+
+    logoutButton.addEventListener('click', (e) => {
+        $(`#${currentUser['nickname']}EditModal`).modal('hide');
+        logoutModal.modal('show');
+    });
+}
+
+
+/**
+ * Attaches invoker for current profile edit modal
+ * @param elem: target DOM element
+ */
+function attachEditModalInvoker(elem) {
+    elem.addEventListener('click', async (e) => {
+        e.preventDefault();
+        await initProfileEditModal();
+    });
+}
+
+
+document.addEventListener('DOMContentLoaded', (e) => {
+
+    if (configData.client === CLIENTS.MAIN) {
+        attachEditModalInvoker(myAccountLink);
+    }
+});
 const DATABASES = {
     CHATS: 'chats'
 }
@@ -3609,257 +3793,196 @@ class DBGateway {
         return new DBGateway(DATABASES.CHATS, table);
     }
 }
-let submindsState;
+/**
+ * Displays modal bounded to the provided conversation id
+ * @param modalElem: modal to display
+ * @param cid: conversation id to consider
+ */
+function displayModalInCID(modalElem, cid) {
+    modalElem.modal('hide');
+    $('.modal-backdrop').appendTo(`#${cid}`);
+    modalElem.modal('show');
+}
+let userSettingsModal;
+let applyUserSettings;
+let minifyMessagesCheck;
+let settingsLink;
 
-function renderActiveSubminds(cid) {
-    if (!submindsState) {
-        console.log(`Subminds for CID ${cid} not yet loaded.`);
-        return;
-    }
-    const loadingSpinner = document.getElementById(`${cid}-subminds-state-loading`);
-    if (loadingSpinner) {
-        loadingSpinner.classList.remove('d-flex');
-        loadingSpinner.style.display = 'none';
-    }
-
-    const dropdownMenu = document.getElementById(`bot-list-${cid}`);
-    dropdownMenu.addEventListener('click', (event) => {
-        event.stopPropagation();
+/**
+ * Displays relevant user settings section based on provided name
+ * @param name: name of the section to display
+ */
+const displaySection = (name) => {
+    Array.from(document.getElementsByClassName('user-settings-section')).forEach(elem => {
+        elem.hidden = true;
     });
+    const elem = document.getElementById(`user-settings-${name}-section`);
+    elem.hidden = false;
+}
 
-    const table = document.getElementById(`${cid}-subminds-state-table`);
-    const entriesContainer = document.getElementById(`${cid}-subminds-state-entries`);
-    const buttonsContainer = document.getElementById(`${cid}-subminds-buttons`);
-    buttonsContainer.style.display = 'none';
-    const cancelButton = document.getElementById(`${cid}-reset-button`);
-    const submitButton = document.getElementById(`${cid}-submit-button`);
-
-    const {
-        subminds_per_cid: submindsPerCID,
-        connected_subminds: connectedSubminds
-    } = submindsState;
-
-    const activeSubminds = submindsPerCID?.[cid]?.filter(submind => submind.status === 'active') || [];
-    const activeSubmindServices = new Set(activeSubminds.map(submind => submind.submind_id.slice(0, submind.submind_id.lastIndexOf('-'))))
-
-    const banned_subminds = submindsPerCID?.[cid]?.filter(submind => submind.status === 'banned') || [];
-    const bannedSubmindIds = new Set(banned_subminds.map(submind => submind.submind_id));
-
-    const initialSubmindsState = [];
-    const processedServiceNames = [];
-    for (let [submindID, submindData] of Object.entries(connectedSubminds || {})) {
-        const serviceName = submindData.service_name;
-        const botType = submindData.bot_type;
-        if (botType === "submind" && !bannedSubmindIds.has(submindID) && !processedServiceNames.includes(serviceName)) {
-            processedServiceNames.push(serviceName)
-            initialSubmindsState.push({
-                service_name: serviceName,
-                is_active: activeSubmindServices.has(serviceName)
-            })
-        }
+/**
+ * Displays user settings based on received preferences
+ * @param preferences
+ */
+const displayUserSettings = (preferences) => {
+    if (preferences) {
+        minifyMessagesCheck.checked = preferences?.minify_messages === '1'
     }
-    initialSubmindsState.sort((a, b) => {
-        return b.is_active - a.is_active;
-    })
+}
 
-    let currentState = structuredClone(initialSubmindsState);
+/**
+ * Initialises section of settings based on provided name
+ * @param sectionName: name of the section provided
+ */
+const initSettingsSection = async (sectionName) => {
+    await refreshCurrentUser(false)
+        .then(userData => displayUserSettings(userData?.preferences))
+        .then(_ => displaySection(sectionName));
+}
 
-    const updateButtonVisibility = () => {
-        const hasChanges = initialSubmindsState.some((submind, index) => submind.is_active !== currentState[index].is_active);
-        buttonsContainer.style.display = hasChanges ? 'block' : 'none';
-    };
-
-    table.style.display = '';
-    entriesContainer.innerHTML = '';
-
-    initialSubmindsState.forEach((submind, index) => {
-        const row = document.createElement('tr');
-        row.innerHTML = `
-<td>${submind.service_name}</td>
-<td class="text-center">
-<div class="custom-control custom-switch">
-<input type="checkbox" class="custom-control-input" id="toggle-${cid}-${submind.service_name}" ${submind.is_active === true ? 'checked' : ''}>
-<label class="custom-control-label" for="toggle-${cid}-${submind.service_name}"></label>
-</div>
-</td>
-`;
-
-        const checkbox = row.querySelector(`#toggle-${cid}-${submind.service_name}`);
-        checkbox.addEventListener('change', () => {
-            currentState[index].is_active = checkbox.checked;
-            updateButtonVisibility();
+/**
+ * Initialises User Settings Modal
+ */
+const initSettingsModal = async () => {
+    Array.from(document.getElementsByClassName('nav-user-settings')).forEach(navItem => {
+        navItem.addEventListener('click', async (e) => {
+            await initSettingsSection(navItem.getAttribute('data-section-name'));
         });
-        entriesContainer.appendChild(row);
     });
+}
 
-    cancelButton.onclick = () => {
-        currentState = structuredClone(initialSubmindsState);
-        currentState.forEach((submind, index) => {
-            const checkbox = document.getElementById(`toggle-${cid}-${submind.service_name}`);
-            checkbox.checked = (submind.is_active) ? "checked" : '';
-        });
-        updateButtonVisibility();
+/**
+ * Applies new settings to current user
+ */
+const applyNewSettings = async () => {
+    const newUserSettings = {
+        'minify_messages': minifyMessagesCheck.checked ? '1' : '0'
     };
-
-    submitButton.onclick = () => {
-        const modifiedSubminds = currentState.filter((current, index) => {
-            return current.is_active !== initialSubmindsState[index].is_active;
-        });
-
-        let subminds_to_remove = modifiedSubminds.filter(submind => !submind.is_active).map(submind => submind.service_name);
-        let subminds_to_add = modifiedSubminds.filter(submind => submind.is_active).map(submind => submind.service_name);
-
-        if (subminds_to_add.length !== 0 || subminds_to_remove.length !== 0) {
-            socket.emit('broadcast', {
-                msg_type: "update_participating_subminds",
-                "cid": cid,
-                "subminds_to_invite": subminds_to_add,
-                "subminds_to_kick": subminds_to_remove,
-            });
-        }
-
-        const dropdownToggle = document.getElementById(`dropdownToggle-${cid}`);
-        if (dropdownToggle) dropdownToggle.click();
-
-        buttonsContainer.style.display = 'none';
-    };
-}
-
-
-function parseSubmindsState(data) {
-    submindsState = data;
-
-    const cids = Object.keys(submindsState["subminds_per_cid"])
-    if (cids.length === 0) {
-        setAllCountersToZero();
-    } else {
-        for (const cid of cids) {
-            refreshSubmindsCount(cid);
-        }
-    }
-}
-/**
- * Collection of supported clients, current client is matched based on client configuration
- * @type {{NANO: string, MAIN: string}}
- */
-const CLIENTS = {
-    MAIN: 'main',
-    NANO: 'nano',
-    UNDEFINED: undefined
-}
-
-/**
- * JS Object containing frontend configuration data
- * @type {{staticFolder: string, currentURLBase: string, currentURLFull: (string|string|string|SVGAnimatedString|*), client: string}}
- */
-
-let configData = {
-    'staticFolder': "../../static",
-    'currentURLBase': extractURLBase(),
-    'currentURLFull': window.location.href,
-    'client': typeof metaConfig !== 'undefined' ? metaConfig?.client : CLIENTS.UNDEFINED,
-    "MAX_CONVERSATIONS_PER_PAGE": 4,
-};
-
-/**
- * Default key for storing data in local storage
- * @type {string}
- */
-const conversationAlignmentKey = 'conversationAlignment';
-
-/**
- * Custom Event fired on configs ended up loading
- * @type {CustomEvent<string>}
- */
-const configFullLoadedEvent = new CustomEvent("configLoaded", {
-    "detail": "Event that is fired when configs are loaded"
-});
-
-/**
- * Convenience method for getting URL base for current page
- * @returns {string} constructed URL base
- */
-function extractURLBase() {
-    return window.location.protocol + '//' + window.location.hostname + (window.location.port ? ':' + window.location.port : '');
-}
-
-/**
- * Extracts json data from provided URL path
- * @param urlPath - file path string
- * @param onError - callback on extraction failure
- * @returns {Promise<* | {}>} promise that resolves data obtained from file path
- */
-async function extractJsonData(urlPath = "",
-    onError = (e) => console.error(`failed to extractJsonData - ${e}`)) {
-    return fetch(urlPath).then(response => {
+    const query_url = 'preferences/update'
+    await fetchServer(query_url, REQUEST_METHODS.POST, newUserSettings, true).then(async response => {
+        const responseJson = await response.json();
         if (response.ok) {
-            return response.json();
+            location.reload();
+        } else {
+            displayAlert(document.getElementById(`userSettingsModalBody`),
+                `${responseJson['msg']}`,
+                'danger');
         }
-        return {};
-    }).catch(onError);
+    });
 }
 
-
-document.addEventListener('DOMContentLoaded', async (e) => {
-    if (configData['client'] === CLIENTS.MAIN) {
-        configData = Object.assign(configData, await extractJsonData(`${configData['currentURLBase']}/base/runtime_config`), (e) => location.reload());
-        document.dispatchEvent(configFullLoadedEvent);
-    }
-});
-document.addEventListener('configLoaded', async (_) => {
-
-    const buildVersion = configData?.["BUILD_VERSION"];
-    const buildTS = configData?.["BUILD_TS"];
-    if (buildVersion && buildTS) {
-        document.getElementById("app-version").innerText = `v${buildVersion} (${getTimeFromTimestamp(buildTS)})`;
-    }
-});
-/**
- * Resolves user reply on message
- * @param replyID: id of user reply
- * @param repliedID id of replied message
- */
-function resolveUserReply(replyID, repliedID) {
-    if (repliedID) {
-        const repliedElem = document.getElementById(repliedID);
-        if (repliedElem) {
-            let repliedText = repliedElem.getElementsByClassName('message-text')[0].innerText;
-            repliedText = shrinkToFit(repliedText, 15);
-            const replyHTML = `<i class="reply-text" data-replied-id="${repliedID}">
-${repliedText}
-</i>`;
-            const replyPlaceholder = document.getElementById(replyID).getElementsByClassName('reply-placeholder')[0];
-            replyPlaceholder.insertAdjacentHTML('afterbegin', replyHTML);
-            attachReplyHighlighting(replyPlaceholder.getElementsByClassName('reply-text')[0]);
-        }
-    }
-}
-
-/**
- * Attaches reply highlighting for reply item
- * @param replyItem reply item element
- */
-function attachReplyHighlighting(replyItem) {
-    replyItem.addEventListener('click', (e) => {
-        const repliedItem = document.getElementById(replyItem.getAttribute('data-replied-id'));
-        const backgroundParent = repliedItem.parentElement.parentElement;
-        repliedItem.scrollIntoView();
-        backgroundParent.classList.remove('message-selected');
-        setTimeout(() => backgroundParent.classList.add('message-selected'), 500);
+function initSettings(elem) {
+    elem.addEventListener('click', async (e) => {
+        await initSettingsModal();
+        userSettingsModal.modal('show');
     });
 }
 
 /**
- * Attaches message replies to initialized conversation
+ * Initialise user settings links based on the current client
+ */
+const initSettingsLinks = () => {
+    if (configData.client === CLIENTS.NANO) {
+        console.log('initialising settings link for ', Array.from(document.getElementsByClassName('settings-link')).length, ' elements')
+        Array.from(document.getElementsByClassName('settings-link')).forEach(elem => {
+            initSettings(elem);
+        });
+    } else {
+        initSettings(document.getElementById('settingsLink'));
+    }
+}
+
+document.addEventListener('DOMContentLoaded', (_) => {
+    if (configData.client === CLIENTS.MAIN) {
+        userSettingsModal = $('#userSettingsModal');
+        applyUserSettings = document.getElementById('applyUserSettings');
+        minifyMessagesCheck = document.getElementById('minifyMessages');
+        applyUserSettings.addEventListener('click', async (e) => await applyNewSettings());
+        settingsLink = document.getElementById('settingsLink');
+        settingsLink.addEventListener('click', async (e) => {
+            e.preventDefault();
+            await initSettingsModal();
+            userSettingsModal.modal('show');
+        });
+    } else {
+        document.addEventListener('modalsLoaded', (e) => {
+            userSettingsModal = $('#userSettingsModal');
+            applyUserSettings = document.getElementById('applyUserSettings');
+            minifyMessagesCheck = document.getElementById('minifyMessages');
+            applyUserSettings.addEventListener('click', async (e) => await applyNewSettings());
+            if (configData.client === CLIENTS.MAIN) {
+                initSettingsLinks();
+            }
+        });
+
+        document.addEventListener('nanoChatsLoaded', (e) => {
+            setTimeout(() => initSettingsLinks(), 1000);
+        })
+    }
+});
+/**
+ * Adds speaking callback for the message
+ * @param cid: id of the conversation
+ * @param messageID: id of the message
+ */
+function addTTSCallback(cid, messageID) {
+    const speakingButton = document.getElementById(`${messageID}_speak`);
+    if (speakingButton) {
+        speakingButton.addEventListener('click', (e) => {
+            e.preventDefault();
+            getTTS(cid, messageID, getPreferredLanguage(cid));
+            setChatState(cid, 'updating', `Fetching TTS...`)
+        });
+    }
+}
+
+/**
+ * Adds speaking callback for the message
+ * @param cid: id of the conversation
+ * @param messageID: id of the message
+ */
+function addSTTCallback(cid, messageID) {
+    const sttButton = document.getElementById(`${messageID}_text`);
+    if (sttButton) {
+        sttButton.addEventListener('click', (e) => {
+            e.preventDefault();
+            const sttContent = document.getElementById(`${messageID}-stt`);
+            if (sttContent) {
+                sttContent.innerHTML = `<div class="text-center">
+Waiting for STT...  <div class="spinner-border spinner-border-sm" role="status">
+<span class="sr-only">Loading...</span>
+</div>
+</div>`;
+                sttContent.style.setProperty('display', 'block', 'important');
+                getSTT(cid, messageID, getPreferredLanguage(cid));
+            }
+        });
+    }
+}
+
+/**
+ * Attaches STT capabilities for audio messages and TTS capabilities for text messages
+ * @param cid: parent conversation id
+ * @param messageID: target message id
+ * @param isAudio: if its an audio message (defaults to '0')
+ */
+function addMessageTransformCallback(cid, messageID, isAudio = '0') {
+    if (isAudio === '1') {
+        addSTTCallback(cid, messageID);
+    } else {
+        addTTSCallback(cid, messageID);
+    }
+}
+
+
+/**
+ * Attaches STT capabilities for audio messages and TTS capabilities for text messages
  * @param conversationData: conversation data object
  */
-function attachReplies(conversationData) {
+function addCommunicationChannelTransformCallback(conversationData) {
     if (conversationData.hasOwnProperty('chat_flow')) {
         getUserMessages(conversationData).forEach(message => {
-            resolveUserReply(message['message_id'], message?.replied_message);
-        });
-        Array.from(document.getElementsByClassName('reply-text')).forEach(replyItem => {
-            attachReplyHighlighting(replyItem);
+            addMessageTransformCallback(conversationData['_id'], message['message_id'], message?.is_audio);
         });
     }
 }
