@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.0.2a6](https://github.com/NeonGeckoCom/pyklatchat-client/tree/0.0.2a6) (2025-09-26)
+
+[Full Changelog](https://github.com/NeonGeckoCom/pyklatchat-client/compare/0.0.3a2...0.0.2a6)
+
+**Merged pull requests:**
+
+- Multi-Round Discussion [\#10](https://github.com/NeonGeckoCom/pyklatchat-client/pull/10) ([NeonDaniel](https://github.com/NeonDaniel))
+
+## [0.0.3a2](https://github.com/NeonGeckoCom/pyklatchat-client/tree/0.0.3a2) (2025-06-16)
+
+[Full Changelog](https://github.com/NeonGeckoCom/pyklatchat-client/compare/0.0.2a5...0.0.3a2)
+
 ## [0.0.2a5](https://github.com/NeonGeckoCom/pyklatchat-client/tree/0.0.2a5) (2025-06-12)
 
 [Full Changelog](https://github.com/NeonGeckoCom/pyklatchat-client/compare/0.0.2a4...0.0.2a5)
