@@ -158,7 +158,7 @@ function generateDarkColorFromUsername(username) {
  * @param submindID - user id of submind
  * @param submindUserData - user data of submind
  * @param submindResponse - Responding data of submind to incoming prompt
- * @param submindOpinions - Discussion data of submind to incoming prompt
+ * @param submindOpinions - Discussion data of submind to incoming prompt, Dict or List[Dict]
  * @param submindVote - Vote data of submind in prompt
  * @param discussionRounds - number of discussion rounds (used for rendering)
  * @return {Promise<string|void>} - Submind Data HTML populated with provided data
@@ -183,8 +183,15 @@ async function buildSubmindHTML(promptID, submindID, submindUserData, submindRes
     let promptParticipantTemplate;
     // Fallback to the single-discussion rounds
     if (!discussionRounds || discussionRounds === 1) {
-        phaseDataObjectMapping['opinion'] = submindOpinions;
-        promptParticipantTemplate = 'prompt_participant'
+          // Check if submindOpinions is an array and take the first element if it is.
+          if (Array.isArray(submindOpinions)) {
+              // Handles cases where multi-round discussion specifies 1 round
+              phaseDataObjectMapping['opinion'] = submindOpinions[0];
+          } else {
+              // Handles backwards-compat. where only one discussion round was saved
+              phaseDataObjectMapping['opinion'] = submindOpinions;
+          }
+          promptParticipantTemplate = 'prompt_participant';
     }else{
         templateData['submind_discussions'] = buildSubmindDiscussionHTML(promptID, userNickname, submindOpinions, discussionRounds);
         promptParticipantTemplate = 'prompt_participant_multi_discussions'
@@ -340,15 +347,20 @@ async function buildPromptHTML(prompt) {
                 try {
                     const messageIds = promptData[key]?.[submindID];
                     if (Array.isArray(messageIds)) {
+                        // Handle `submind_discussion_history` which maps User UID to an array of message IDs
                         data[key] = messageIds.map(id => {
                             const raw = prompt['message_mapping']?.[id]?.[0];
+                            if (!raw) {
+                                console.warn(`Message ID ${id} not found in message_mapping for key ${key}`);
+                            }
                             return raw ? { ...raw, message_id: id } : { message_text: emptyAnswer };
-                        });
+                        }); 
                     } else {
                         const id = messageIds;
                         const raw = prompt['message_mapping']?.[id]?.[0];
                         data[key] = raw ? { ...raw, message_id: id } : { message_text: emptyAnswer };
                     }
+                  console.debug(`Fetched data for key ${key} and submindID ${submindID}:`, data[key]);
                 } catch (e) {
                     data[key] = Array.isArray(promptData[key]?.[submindID])
                         ? promptData[key][submindID].map(() => ({message_text: emptyAnswer}))
