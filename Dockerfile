@@ -8,17 +8,16 @@ ENV OVOS_CONFIG_FILENAME=klat.yaml
 ENV XDG_CONFIG_HOME=/config
 ENV KLAT_ENV=PROD
 
+RUN apt-get update \
+    && apt-get install -y \
+    && apt-get install build-essential -y \
+    && pip install --upgrade pip  \
+    && pip install wheel
+
 COPY . /app/
 
 WORKDIR /app
 
-RUN apt-get update \
-    && apt-get install -y \
-    && apt install build-essential -y \
-    && pip install --upgrade pip  \
-    && pip install wheel
-
 RUN pip install /app
-
 
 CMD ["pyklatchat-client"]
