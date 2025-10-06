@@ -354,7 +354,7 @@ async function buildPromptHTML(prompt) {
                                 console.warn(`Message ID ${id} not found in message_mapping for key ${key}`);
                             }
                             return raw ? { ...raw, message_id: id } : { message_text: emptyAnswer };
-                        }); 
+                        });
                     } else {
                         const id = messageIds;
                         const raw = prompt['message_mapping']?.[id]?.[0];
